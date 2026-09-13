@@ -254,10 +254,19 @@ export const LumiAvatar: React.FC<LumiAvatarProps> = ({
           </div>
         </div>
 
-        {/* Character Image & Motion Viewport — preserved 3:4 portrait aspect ratio (non-square), scaled down 25% */}
+        {/* Character Image & Motion Viewport — preserved 3:4 portrait aspect
+            ratio (non-square), scaled down 25%. Height must NEVER be clamped
+            below the 3:4 ratio (e.g. a hard max-h-[285px]): object-cover would
+            then upscale the image to fill the extra width, cropping the bottom
+            of the portrait away and making Lumi look zoomed/cropped/soft
+            compared to the non-compact tabs. compact only affects the minimum
+            floor and the sound-wave bar count below — both cap heights
+            identically so the framing matches the Cambridge/Lessons/Chat tabs. */}
         <div
           className={`relative w-full aspect-[4/5] sm:aspect-[3/4] ${
-            compact ? 'min-h-[225px] max-h-[285px]' : 'min-h-[300px] sm:min-h-[345px] max-h-[435px]'
+            compact
+              ? 'min-h-[225px] sm:min-h-[285px] max-h-[435px]'
+              : 'min-h-[300px] sm:min-h-[345px] max-h-[435px]'
           } overflow-hidden bg-[#21222c] flex items-center justify-center`}
         >
           {(Object.keys(LUMI_IMAGES) as LumiMood[]).map((frameMood) => (
@@ -267,7 +276,7 @@ export const LumiAvatar: React.FC<LumiAvatarProps> = ({
               alt="Lumi AI Tutor"
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out ${
                 displayMood === frameMood ? 'opacity-100' : 'opacity-0'
-              } ${displayMood === 'listening' ? 'object-center' : 'object-top'}`}
+              } ${displayMood === 'listening' || displayMood === 'evaluating' ? 'object-center' : 'object-top'}`}
               referrerPolicy="no-referrer"
             />
           ))}

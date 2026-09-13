@@ -21,9 +21,9 @@ import { CAMBRIDGE_TESTS, getCambridgeTestById } from '../data/cambridgeTests';
 import { LumiAvatar } from './LumiAvatar';
 import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
 import confetti from 'canvas-confetti';
-import { diagnosticGreetingIntro, diagnosticGreetingPrompt, diagnosticGreeting } from '../utils/greetings';
+import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing } from '../utils/greetings';
 
-interface DiagnosticTestProps {
+interface CambridgeTestProps {
   userProfile: UserProfile;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
@@ -42,7 +42,7 @@ const DIAGNOSTIC_FALLBACK_QUESTION: DiagnosticQuestion = {
   cueTips: ['Keep your answer natural and personal.', 'Use a few linking words and examples.'],
 };
 
-export const DiagnosticTest: React.FC<DiagnosticTestProps> = ({
+export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   userProfile,
   voiceEnabled,
   onToggleVoice,
@@ -136,25 +136,23 @@ export const DiagnosticTest: React.FC<DiagnosticTestProps> = ({
 
   // Compute clean, expressive speech prompt for Lumi (spoken once upon entering each question).
   // IMPORTANT: Lumi actually reads the question aloud so text and voice always match.
+  // The opener/closing rotate through natural examiner lines (see greetings.ts)
+  // keyed to the question's position within its part, so she never repeats the
+  // same framing line on every question of Part 1 / Part 3.
   const getQuestionSpeech = (idx: number, q: DiagnosticQuestion, nickname: string) => {
-    const partIntro =
-      q.part === 1
-        ? `Let's begin with Part 1, ${nickname}.`
-        : q.part === 2
-        ? `Now for Part 2, Here is your cue card.`
-        : `And finally, Part 3, Let's discuss this in more depth.`;
+    // Zero-based position of this question WITHIN its part (0 = first question
+    // of that part — those still get the "Let's begin with Part 1." / "And
+    // finally, Part 3..." announcements so transitions are always clear).
+    const partQuestionIndex = questions.slice(0, idx).filter((x) => x.part === q.part).length;
+
+    const partIntro = cambridgeQuestionOpener(q.part, partQuestionIndex);
 
     const bullets =
       q.bulletPoints && q.bulletPoints.length > 0
         ? ` You should say: ${q.bulletPoints.join('. ')}.`
         : '';
 
-    const closing =
-      q.part === 1
-        ? ' Take a breath, and answer naturally.'
-        : q.part === 2
-        ? ' One minute to prepare.'
-        : ' Think broadly, and share a balanced view.';
+    const closing = cambridgeQuestionClosing(q.part, partQuestionIndex);
 
     return `${partIntro} ${q.question}${bullets}${closing}`;
   };
@@ -163,7 +161,7 @@ export const DiagnosticTest: React.FC<DiagnosticTestProps> = ({
   // ONE canonical greeting string, used for both the on-screen subtitle and
   // the MANUAL replay button. Lumi never speaks automatically in this tab —
   // her voice only plays when the user presses ▶ (see LumiAvatar replay).
-  const greetingText = diagnosticGreeting(userProfile.nickname);
+  const greetingText = cambridgeGreeting(userProfile.nickname);
 
   const spokenAudioPrompt = !selectedTest
     ? greetingText
@@ -1029,9 +1027,9 @@ useEffect(() => {
               <div className="space-y-4">
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-[#bd93f9]/10 to-[#8be9fd]/10 border border-[#44475a]">
                   <p className="text-sm font-semibold text-[#f8f8f2]">
-                    {diagnosticGreetingIntro(userProfile.nickname)}
+                    {cambridgeGreetingIntro(userProfile.nickname)}
                   </p>
-                  <p className="mt-1 text-sm text-[#6272a4]">{diagnosticGreetingPrompt}</p>
+                  <p className="mt-1 text-sm text-[#6272a4]">{cambridgeGreetingPrompt}</p>
                 </div>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#8be9fd]">

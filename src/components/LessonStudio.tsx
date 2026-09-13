@@ -18,18 +18,23 @@ import {
   Send,
   Menu
 } from 'lucide-react';
-import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, LumiMood } from '../types';
+import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, LumiMood, SavedLessonPlan } from '../types';
+import { lessonPlanFingerprint } from '../utils/lessonHistory';
 import { LumiAvatar } from './LumiAvatar';
-import { createSpeechRecognizer, lumiVoice, soundFX, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
+import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
 import { useLumiMood, useMicMoodSync, normalizeReplyMood } from '../utils/lumiMood';
 import confetti from 'canvas-confetti';
-import { lessonModuleIntro } from '../utils/greetings';
+import { lessonModuleIntro, lessonModuleIntroSpeech } from '../utils/greetings';
 
 interface LessonStudioProps {
   evaluation: SpeakingEvaluation;
   userProfile: UserProfile;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
+  // Custom Lesson history (lumi_lesson_history): roadmap of EVERY completed
+  // test / practice session, newest first. Tick marks persist in the store.
+  lessonPlans: SavedLessonPlan[];
+  onMarkLessonComplete: (planId: string, moduleId: string) => void;
 }
 
 export const LessonStudio: React.FC<LessonStudioProps> = ({
@@ -37,19 +42,58 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   userProfile,
   voiceEnabled,
   onToggleVoice,
+  lessonPlans,
+  onMarkLessonComplete,
 }) => {
-  const [modules, setModules] = useState<LessonRoadmapModule[]>(evaluation.lessonRoadmap || []);
+  // Lesson plans shown in the sidebar: the persisted history of all tests
+  // (newest first). Fallback: if the store is somehow empty (e.g. the active
+  // evaluation predates it), still show the current roadmap.
+  const plans: SavedLessonPlan[] =
+    lessonPlans.length > 0
+      ? lessonPlans
+      : evaluation.lessonRoadmap?.length
+        ? [
+            {
+              id: 'plan-current',
+              savedAt: Date.now(),
+              source: 'cambridge',
+              testId: evaluation.testId,
+              testLabel: evaluation.testLabel || 'Current Roadmap',
+              fingerprint: lessonPlanFingerprint(evaluation.lessonRoadmap),
+              modules: evaluation.lessonRoadmap,
+            },
+          ]
+        : [];
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(plans[0]?.id || '');
   const [selectedModule, setSelectedModule] = useState<LessonRoadmapModule>(
-    evaluation.lessonRoadmap?.[0] || ({} as LessonRoadmapModule)
+    plans[0]?.modules?.[0] || ({} as LessonRoadmapModule)
   );
+  // Optimistic tick marks for completions not yet reflected by the store
+  // (covers the non-persisted fallback plan above).
+  const [localCompleted, setLocalCompleted] = useState<Record<string, boolean>>({});
   const [userSpokenText, setUserSpokenText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isEvaluatingDrill, setIsEvaluatingDrill] = useState(false);
+  // AI speech modification (Whisper): while true the recorded audio is being
+  // transcribed/refined by the AI and the transcript box may update.
+  const [isRefiningTranscript, setIsRefiningTranscript] = useState(false);
+  const refiningRef = useRef(false);
   const [drillFeedback, setDrillFeedback] = useState<any>(null);
   // Central mood state machine (src/utils/lumiMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
   const [lumiMood, setLumiMood] = useLumiMood();
   const [lumiSpeech, setLumiSpeech] = useState('');
+  // Audio Lumi actually READS ALOUD. Normally undefined (= speak lumiSpeech
+  // verbatim via LumiAvatar's fallback), but for the module intro it carries
+  // the practice prompt so she READS the question aloud while her speech box
+  // only shows the welcome text up to "Let's master this concept."
+  const [lumiSpokenAudio, setLumiSpokenAudio] = useState<string | undefined>(undefined);
+  /** Single helper so displayed text and spoken audio never drift apart. */
+  const sayLumi = (displayed: string, spoken?: string) => {
+    setLumiSpeech(displayed);
+    setLumiSpokenAudio(spoken);
+  };
 
   // Mic lifecycle → mood: while the mic is open the mood is ALWAYS
   // 'listening'; the moment it closes the previous base mood returns.
@@ -74,7 +118,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       onEnd: () => setIsRecording(false),
     });
 
-    return () => recognizerRef.current?.stop();
+    return () => {
+      recognizerRef.current?.stop();
+      void activeAudioRecorder.stop().catch(() => {});
+    };
   }, [selectedLanguage]);
 
   // When selected module changes
@@ -84,25 +131,44 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     setConversationHistory([]);
     setIsRecording(false);
     recognizerRef.current?.stop();
+    void activeAudioRecorder.stop().catch(() => {});
     recognizerRef.current?.reset();
 
     if (selectedModule?.title) {
-      const intro = lessonModuleIntro(selectedModule.title, userProfile.nickname, selectedModule.practiceDrill.prompt);
-      setLumiSpeech(intro);
+      const intro = lessonModuleIntro(selectedModule.title, userProfile.nickname);
+      // Show ONLY the welcome in Lumi's box, but READ the practice prompt aloud.
+      const introSpoken = lessonModuleIntroSpeech(selectedModule.title, userProfile.nickname, selectedModule.practiceDrill.prompt);
+      sayLumi(intro, introSpoken);
       setLumiMood('speaking');
     }
   }, [selectedModule, userProfile.nickname]);
 
-  const handleSelectModule = (mod: LessonRoadmapModule) => {
+  const handleSelectModule = (planId: string, mod: LessonRoadmapModule) => {
     soundFX.playChime('start');
+    setSelectedPlanId(planId);
     setSelectedModule(mod);
   };
+
+  // A lesson is done if the persisted store says so (mod.completed) or the
+  // user just finished it this session (optimistic tick).
+  const isModuleDone = (planId: string, mod: LessonRoadmapModule) =>
+    !!mod.completed || !!localCompleted[`${planId}:${mod.id}`];
+
+  const totalDone = plans.reduce(
+    (n, p) => n + p.modules.filter((m) => isModuleDone(p.id, m)).length,
+    0
+  );
+  const totalLessons = plans.reduce((n, p) => n + p.modules.length, 0);
 
   const handleStartRecording = () => {
     soundFX.playChime('start');
     // 'listening' mood comes automatically via useMicMoodSync when the
     // recognizer's onStart flips isRecording true — do NOT set it directly.
-    setLumiSpeech(`Listening to your drill answer, ${userProfile.nickname}...`);
+    // Lumi's current message (including any follow-up questions) STAYS in her
+    // box while you speak; the LISTENING badge + mic icon signal the state.
+    lumiVoice.stop();
+    // Native high-fidelity recorder feeding the AI transcript refinement.
+    activeAudioRecorder.start();
     recognizerRef.current?.setBaseTranscript(userSpokenText);
     recognizerRef.current?.start();
   };
@@ -110,8 +176,40 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   const handleStopRecording = () => {
     recognizerRef.current?.stop();
     setIsRecording(false);
-    setLumiMood('speaking');
-    setLumiSpeech("I heard you.");
+    // No "I heard you." filler and no mood override: useMicMoodSync releases
+    // the listening override and restores the previous base mood, and Lumi's
+    // last message stays in her box. The AI refines the transcript instead.
+    void refineTranscriptWithAI(userSpokenText);
+  };
+
+  // AI speech modification — the SAME Whisper refinement pipeline the chat and
+  // the Cambridge test use: recorded audio + the raw browser draft are sent to
+  // /api/stt and the polished transcript replaces the draft in the answer box.
+  const refineTranscriptWithAI = async (draftTranscript: string) => {
+    if (refiningRef.current) return;
+    refiningRef.current = true;
+    setIsRefiningTranscript(true);
+    try {
+      const recordResult = await activeAudioRecorder.stop().catch(() => null);
+      const draft = draftTranscript.trim();
+      if ((recordResult?.base64 && recordResult.base64.length > 50) || draft.length > 5) {
+        const refinedText = await transcribeAudioWithAI({
+          audioBase64: recordResult?.base64 || '',
+          mimeType: recordResult?.mimeType || 'audio/webm',
+          draftTranscript: draft,
+        });
+        const clean = (refinedText || '').trim();
+        if (clean) {
+          setUserSpokenText(clean);
+          recognizerRef.current?.setBaseTranscript(clean);
+        }
+      }
+    } catch (e) {
+      console.warn('Transcript AI refinement notice:', e);
+    } finally {
+      refiningRef.current = false;
+      setIsRefiningTranscript(false);
+    }
   };
 
   const handleUserTextChange = (text: string) => {
@@ -123,16 +221,19 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     if (!selectedModule?.practiceDrill?.modelBand9Sample) return;
     soundFX.playChime('start');
     setLumiMood('speaking');
-    setLumiSpeech(selectedModule.practiceDrill.modelBand9Sample);
+    sayLumi(selectedModule.practiceDrill.modelBand9Sample);
   };
 
   const handleSubmitDrillAnswer = async () => {
     if (!userSpokenText.trim()) return;
     recognizerRef.current?.stop();
     setIsRecording(false);
+    // Release the native mic capture too (the AI refinement may not have run
+    // if the user submitted straight from the listening state).
+    void activeAudioRecorder.stop().catch(() => {});
     setIsEvaluatingDrill(true);
     setLumiMood('evaluating');
-    setLumiSpeech(`Analyzing your practice response...`);
+    sayLumi(`Analyzing your practice response...`);
 
     const userMsg = `Drill topic: "${selectedModule.practiceDrill.prompt}". My answer: "${userSpokenText}"`;
 
@@ -158,7 +259,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           originalAnswer: userSpokenText,
         });
         setLumiMood(normalizeReplyMood(data.reply.mood) || 'celebrating');
-        setLumiSpeech(data.reply.replyText);
+        sayLumi(data.reply.replyText);
         soundFX.playChime('success');
         
         setConversationHistory([
@@ -168,10 +269,11 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         
         setUserSpokenText('');
 
-        // Mark module as completed
-        setModules((prev) =>
-          prev.map((m) => (m.id === selectedModule.id ? { ...m, completed: true } : m))
-        );
+        // Mark the lesson as completed: optimistic tick for instant feedback,
+        // then persist it to the lesson history store (lumi_lesson_history)
+        // via App so the ✓ survives reloads and new tests.
+        setLocalCompleted((prev) => ({ ...prev, [`${selectedPlanId}:${selectedModule.id}`]: true }));
+        onMarkLessonComplete(selectedPlanId, selectedModule.id);
 
         try {
           confetti({
@@ -184,7 +286,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     } catch (e) {
       setIsEvaluatingDrill(false);
       setLumiMood('encouraging');
-      setLumiSpeech(`Excellent effort, ${userProfile.nickname}! You used great vocabulary flow.`);
+      sayLumi(`Excellent effort, ${userProfile.nickname}! You used great vocabulary flow.`);
       setDrillFeedback({
         originalAnswer: userSpokenText,
         correctedSentence: userSpokenText,
@@ -200,7 +302,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     recognizerRef.current?.stop();
     setIsRecording(false);
     setIsSubmittingReply(true);
-    setLumiSpeech('');
+    sayLumi('');
 
     const userMsg = userSpokenText;
     const currentHist = [...conversationHistory];
@@ -223,7 +325,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
       if (data.success && data.reply) {
         setLumiMood(normalizeReplyMood(data.reply.mood) || 'speaking');
-        setLumiSpeech(data.reply.replyText);
+        sayLumi(data.reply.replyText);
         soundFX.playChime('success');
 
         if (data.reply.feedback) {
@@ -238,11 +340,11 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         
         setUserSpokenText('');
       } else {
-        setLumiSpeech("I didn't quite catch that. Could you try replying again?");
+        sayLumi("I didn't quite catch that. Could you try replying again?");
       }
     } catch (e) {
       setIsSubmittingReply(false);
-      setLumiSpeech("I had trouble sending that reply. Let's try once more.");
+      sayLumi("I had trouble sending that reply. Let's try once more.");
     }
   };
 
@@ -280,7 +382,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[#282a36] border border-[#bd93f9]/40 text-[#bd93f9]">
-            {modules.filter((m) => m.completed).length} of {modules.length} Completed
+            {totalDone} of {totalLessons} Completed
           </span>
         </div>
       </div>
@@ -294,53 +396,81 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
             Your Custom Learning Roadmap
           </h3>
 
-          <div className="space-y-2.5">
-            {modules.map((mod, idx) => {
-              const isSelected = selectedModule.id === mod.id;
-              return (
-                <button
-                  key={mod.id}
-                  id={`module-select-${mod.id}`}
-                  type="button"
-                  onClick={() => handleSelectModule(mod)}
-                  className={`w-full p-4 rounded-2xl border text-left transition-all relative overflow-hidden ${
-                    isSelected
-                      ? 'bg-[#44475a] border-[#bd93f9] text-[#f8f8f2] ring-1 ring-[#bd93f9]/40 shadow-lg shadow-[#bd93f9]/10'
-                      : 'bg-[#282a36] border-[#44475a] text-[#f8f8f2]/90 hover:border-[#6272a4]'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-[#21222c] border border-[#44475a] flex items-center justify-center text-xs font-bold font-mono text-[#8be9fd]">
-                        {idx + 1}
-                      </span>
-                      <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded bg-[#21222c] text-[#6272a4]">
-                        {mod.category}
-                      </span>
-                    </div>
+          {plans.length > 1 && (
+            <p className="text-[10px] text-[#6272a4] px-1 leading-relaxed">
+              Lessons from every test — newest first. Finish a drill to earn the ✓.
+            </p>
+          )}
 
-                    {mod.completed ? (
-                      <span className="flex items-center gap-1 text-[11px] font-semibold text-[#50fa7b]">
-                        <Check className="w-3.5 h-3.5" /> Done
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-[#6272a4] font-mono flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {mod.duration}
-                      </span>
-                    )}
-                  </div>
+          {plans.map((plan) => (
+            <div key={plan.id} className="space-y-2.5">
+              {/* Test group header — only shown once there is more than one test */}
+              {plans.length > 1 && (
+                <div className="flex items-center justify-between gap-2 px-1 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#bd93f9] truncate">
+                    {plan.testLabel || 'Custom Lessons'}
+                  </span>
+                  <span className="text-[10px] text-[#6272a4] font-mono shrink-0">
+                    {new Date(plan.savedAt).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
 
-                  <h4 className="text-sm font-bold text-[#f8f8f2] mt-2 line-clamp-1">
-                    {mod.title}
-                  </h4>
+              <div className="space-y-2.5">
+                {plan.modules.map((mod, idx) => {
+                  const isSelected = selectedPlanId === plan.id && selectedModule.id === mod.id;
+                  const isDone = isModuleDone(plan.id, mod);
+                  return (
+                    <button
+                      key={`${plan.id}-${mod.id}`}
+                      id={`module-select-${plan.id}-${mod.id}`}
+                      type="button"
+                      onClick={() => handleSelectModule(plan.id, mod)}
+                      className={`w-full p-4 rounded-2xl border text-left transition-all relative overflow-hidden ${
+                        isSelected
+                          ? 'bg-[#44475a] border-[#bd93f9] text-[#f8f8f2] ring-1 ring-[#bd93f9]/40 shadow-lg shadow-[#bd93f9]/10'
+                          : isDone
+                            ? 'bg-[#282a36] border-[#50fa7b]/30 text-[#f8f8f2]/90 hover:border-[#50fa7b]/50'
+                            : 'bg-[#282a36] border-[#44475a] text-[#f8f8f2]/90 hover:border-[#6272a4]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-[#21222c] border border-[#44475a] flex items-center justify-center text-xs font-bold font-mono text-[#8be9fd]">
+                            {idx + 1}
+                          </span>
+                          <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded bg-[#21222c] text-[#6272a4]">
+                            {mod.category}
+                          </span>
+                        </div>
 
-                  <p className="text-[11px] text-[#6272a4] mt-1 line-clamp-2 leading-relaxed">
-                    {mod.description}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+                        {isDone ? (
+                          <span className="flex items-center gap-1 text-[11px] font-semibold text-[#50fa7b] shrink-0">
+                            <span className="w-4 h-4 rounded-full bg-[#50fa7b] flex items-center justify-center">
+                              <Check className="w-3 h-3 text-[#282a36]" strokeWidth={3.5} />
+                            </span>
+                            Done
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-[#6272a4] font-mono flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {mod.duration}
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className={`text-sm font-bold text-[#f8f8f2] mt-2 line-clamp-1 ${isDone ? 'opacity-80' : ''}`}>
+                        {mod.title}
+                      </h4>
+
+                      <p className="text-[11px] text-[#6272a4] mt-1 line-clamp-2 leading-relaxed">
+                        {mod.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
 
           {/* Quick Mock Room Card */}
           <div className="p-4 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-2">
@@ -386,28 +516,36 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
             {/* Lumi Visual Coach Stage in Lesson */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
               <div className="md:col-span-5">
-                <LumiAvatar
-                  mood={lumiMood}
-                  currentSpeech={lumiSpeech}
-                  isUserSpeaking={isRecording}
-                  voiceEnabled={voiceEnabled}
-                  onToggleVoice={onToggleVoice}
-                />
+                {/* Width wrapper: keeps the avatar AND the objectives panel at
+                    the avatar's native 320/340px width, centered, so the image
+                    ratio is untouched and both blocks align in every sidebar
+                    state. */}
+                <div className="w-full max-w-[320px] sm:max-w-[340px] mx-auto space-y-3">
+                  <LumiAvatar
+                    mood={lumiMood}
+                    currentSpeech={lumiSpeech}
+                    spokenAudioText={lumiSpokenAudio}
+                    isUserSpeaking={isRecording}
+                    voiceEnabled={voiceEnabled}
+                    onToggleVoice={onToggleVoice}
+                  />
+
+                  {/* Key Learning Objectives — directly under Lumi's voice box */}
+                  <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-2 text-xs">
+                    <div className="font-semibold text-[#f8f8f2] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#8be9fd]" />
+                      Key Learning Objectives:
+                    </div>
+                    <ul className="space-y-1 pl-4 list-disc text-[#f8f8f2]/80 text-[11px]">
+                      {selectedModule.objectives?.map((obj, i) => (
+                        <li key={i}>{obj}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
 
               <div className="md:col-span-7 space-y-3">
-                <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-2 text-xs">
-                  <div className="font-semibold text-[#f8f8f2] flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#8be9fd]" />
-                    Key Learning Objectives:
-                  </div>
-                  <ul className="space-y-1 pl-4 list-disc text-[#f8f8f2]/80 text-[11px]">
-                    {selectedModule.objectives?.map((obj, i) => (
-                      <li key={i}>{obj}</li>
-                    ))}
-                  </ul>
-                </div>
-
                 <div className="p-4 rounded-2xl bg-[#21222c] border border-[#bd93f9]/30 text-xs space-y-2">
                   <span className="text-[10px] uppercase font-bold text-[#bd93f9] tracking-wider">
                     Interactive Drill Prompt:
@@ -442,6 +580,12 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     <span className="text-[11px] text-[#6272a4]">
                       {userSpokenText.split(/\s+/).filter(Boolean).length} words
                     </span>
+                    {isRefiningTranscript && (
+                      <span className="text-[11px] text-[#bd93f9] flex items-center gap-1 animate-pulse">
+                        <Sparkles className="w-3 h-3" />
+                        AI is refining your transcript…
+                      </span>
+                    )}
                   </div>
 
                 <div className="flex items-center gap-1 text-[11px]">
@@ -531,7 +675,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   id="drill-evaluate-btn"
                   type="button"
                   onClick={handleSubmitDrillAnswer}
-                  disabled={!userSpokenText.trim() || isEvaluatingDrill}
+                  disabled={!userSpokenText.trim() || isEvaluatingDrill || isRefiningTranscript}
                   className="px-6 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-40 disabled:pointer-events-none text-[#282a36] font-bold text-xs sm:text-sm shadow-lg shadow-[#bd93f9]/25 transition-all flex items-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />
@@ -629,14 +773,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                       {!isRecording ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            soundFX.playChime('start');
-                            // 'listening' mood comes automatically via
-                            // useMicMoodSync when isRecording flips true.
-                            setLumiSpeech(`Listening to your reply, ${userProfile.nickname}...`);
-                            recognizerRef.current?.setBaseTranscript(userSpokenText);
-                            recognizerRef.current?.start();
-                          }}
+                          onClick={handleStartRecording}
                           className="px-4 py-2 rounded-xl bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36] font-bold text-xs flex items-center gap-2"
                         >
                           <Mic className="w-4 h-4" />
@@ -645,12 +782,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            recognizerRef.current?.stop();
-                            setIsRecording(false);
-                            setLumiMood('speaking');
-                            setLumiSpeech("I heard you.");
-                          }}
+                          onClick={handleStopRecording}
                           className="px-4 py-2 rounded-xl bg-[#ff5555] hover:bg-[#ff5555]/90 text-[#f8f8f2] font-bold text-xs flex items-center gap-2 animate-pulse"
                         >
                           <MicOff className="w-4 h-4" />

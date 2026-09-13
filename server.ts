@@ -11,6 +11,43 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { casualGreetingReply, tutorGreetingReply } from './src/utils/greetings';
 
 dotenv.config();
+dotenv.config();
+
+// ---------------------------------------------------------------------------
+// msedge-tts hardening — late WebSocket frames must never kill the server
+// ---------------------------------------------------------------------------
+// When the browser aborts a TTS request (pause / stop / next utterance in the
+// Solutions tab), the audio stream is destroyed and the WebSocket closed. Late
+// audio frames can still arrive afterwards and the library's message handler
+// looks up a stream entry that no longer exists, throwing an UNCAUGHT
+// exception that takes the whole Node process down ("Cannot read properties
+// of undefined (reading 'audio')"). Every /api/tts call then fails and the
+// app silently degrades to the robotic browser voice. Guard the internal push
+// helpers against a missing stream entry, and install a global safety net so
+// a TTS hiccup can never crash the server again.
+const msedgeProto = MsEdgeTTS.prototype as unknown as Record<string, (...args: any[]) => void>;
+for (const methodName of ['_pushAudioData', '_pushMetadata']) {
+  const original = msedgeProto[methodName];
+  if (typeof original !== 'function') continue;
+  msedgeProto[methodName] = function (this: any, ...args: any[]) {
+    // Frame for a stream that was already torn down (aborted request) — drop it
+    if (!this._streams || !this._streams[args[1]]) return;
+    try {
+      return original.apply(this, args);
+    } catch {
+      // Pushing into a destroyed Readable throws — harmless for an aborted
+      // request, but it must never escape into the WebSocket receiver.
+    }
+  };
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception (server kept alive):', err?.stack || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection (server kept alive):', reason);
+});
+
 
 // ---------------------------------------------------------------------------
 // sherpa-onnx Whisper STT (local, offline, no API key)

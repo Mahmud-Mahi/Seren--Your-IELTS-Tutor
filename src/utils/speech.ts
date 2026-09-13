@@ -114,6 +114,10 @@ class SpeechEngine {
   // AbortController for the in-flight /api/tts fetch — lets stop() cancel a
   // slow/stale request instantly instead of waiting on the socket.
   private ttsAbortCtrl: AbortController | null = null;
+  // Settles the in-flight server utterance's speak() promise when its audio
+  // element is detached externally (newer utterance / stop()), so the caller
+  // awaiting it never hangs.
+  private activeServerSettle: ((result: boolean) => void) | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -194,6 +198,11 @@ class SpeechEngine {
 
 
   private stopServerAudio() {
+    // If a server utterance is mid-playback, resolve its pending speak()
+    // promise first so no session loop ever hangs on a detached element.
+    const settle = this.activeServerSettle;
+    this.activeServerSettle = null;
+    try { settle?.(true); } catch (e) {}
     if (this.audioEl) {
       // Detach handlers FIRST: clearing src can fire an 'error' event whose
       // stale finish()/onEnd would otherwise cut short newer speech gates
@@ -235,7 +244,9 @@ class SpeechEngine {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: cleanedText,
-          voice: this.ttsVoice || undefined,
+          // Per-utterance voice override (e.g. the fixed male examiner voice in
+          // the Cambridge Solutions tab); falls back to the configured Lumi voice.
+          voice: (typeof options?.voice === 'string' && options.voice.trim()) || this.ttsVoice || undefined,
           rate: typeof options?.rate === 'number' ? options.rate : 1,
           pitch: typeof options?.pitch === 'number' ? options.pitch : 1.06,
         }),
@@ -253,110 +264,94 @@ class SpeechEngine {
         throw new Error(`TTS endpoint returned ${res.status}`);
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      const blob = await res.blob();
+      if (this.isStale(gen)) {
+        resolve();
+        return true;
+      }
+      if (!blob || blob.size === 0) throw new Error('Empty TTS audio response');
 
-      const mime = res.headers.get('content-type') || 'audio/mpeg';
-      const codecs = mime.includes('wav') ? 'audio/wav' : mime.includes('ogg') ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-      const mediaSource = new MediaSource();
-      const objectUrl = URL.createObjectURL(mediaSource);
+      // Plain Blob playback instead of MediaSource streaming: MSE supports
+      // only a handful of codec containers, races on partial MP3 chunks and
+      // can leave the utterance in "never started" silence. A blob <audio>
+      // element plays the exact bytes the server produced, in every browser,
+      // with no timing races.
+      const objectUrl = URL.createObjectURL(blob);
       this.audioObjectUrl = objectUrl;
-
-      const audio = new Audio();
-      audio.src = objectUrl;
+      const audio = new Audio(objectUrl);
       this.audioEl = audio;
 
-      let started = false;
-      let settled = false;
-      let sourceOpen = false;
-      let audioBuffer: SourceBuffer | null = null;
-      const chunks: ArrayBuffer[] = [];
+      this.isSpeaking = true;
+      this.currentSpeakingText = cleanedText;
+      this.queuedSpeakTask = null;
+      options?.onStart?.();
 
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        this.ttsAbortCtrl = null;
-        this.isSpeaking = false;
-        this.currentSpeakingText = '';
+      // Settle the in-flight playback from outside too: stopServerAudio()
+      // (newer utterance / stop()) detaches the element's handlers, and this
+      // hook makes sure the awaiting speak() still resolves instead of
+      // hanging the session loop forever.
+      let settleDone: ((result: boolean) => void) | null = null;
+      const done = new Promise<boolean>((resolveDone) => {
+        settleDone = resolveDone;
+      });
+      this.activeServerSettle = (result: boolean) => {
+        const s = settleDone;
+        this.activeServerSettle = null;
+        s?.(result);
+      };
+
+      audio.onended = () => {
         if (this.isStale(gen)) {
-          resolve();
+          this.activeServerSettle?.(true);
           return;
         }
+        this.isSpeaking = false;
+        this.currentSpeakingText = '';
+        this.activeServerSettle?.(true);
+      };
+      audio.onerror = () => {
+        // Broken/unplayable audio → surface as a failure so dispatchSpeak
+        // degrades to the browser engine instead of leaving the user with
+        // silence and no fallback.
+        this.activeServerSettle?.(false);
+      };
+
+      try {
+        await audio.play();
+      } catch (e: any) {
+        // Autoplay blocked: this audio will NEVER actually play, so settle
+        // the utterance right away. Keep the task queued so unlock() (first
+        // user gesture) replays it as neural speech instead of degrading to
+        // the browser voice.
+        this.lastServerBlocked = true;
         this.stopServerAudio();
-        options?.onEnd?.();
+        this.isSpeaking = false;
+        this.currentSpeakingText = '';
         resolve();
-      };
-
-      const tryStartPlayback = async () => {
-        if (started || !audioBuffer || !sourceOpen) return;
-        if (audioBuffer.updating) return;
-        if (audioBuffer.buffered.length === 0) return;
-        started = true;
-        this.isSpeaking = true;
-        this.currentSpeakingText = cleanedText;
-        this.queuedSpeakTask = null;
-        options?.onStart?.();
-        try {
-          await audio.play();
-        } catch (e) {
-          // Autoplay blocked
-        }
-      };
-
-      audio.onended = finish;
-      audio.onerror = finish;
-
-      mediaSource.addEventListener('sourceopen', () => {
-        sourceOpen = true;
-        audioBuffer = mediaSource.addSourceBuffer(codecs);
-        audioBuffer.mode = 'sequence';
-
-        audioBuffer.addEventListener('updateend', () => {
-          tryStartPlayback();
-        });
-
-        // Process any chunks that arrived before sourceopen
-        if (chunks.length > 0 && audioBuffer && !audioBuffer.updating) {
-          const merged = new Uint8Array(chunks.reduce((a, c) => a + c.byteLength, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            merged.set(new Uint8Array(chunk), offset);
-            offset += chunk.byteLength;
-          }
-          chunks.length = 0;
-          audioBuffer.appendBuffer(merged);
-        }
-      });
-
-      // Stream response chunks into MediaSource
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (this.isStale(gen)) {
-          reader.cancel();
-          finish();
-          return true;
-        }
-        if (audioBuffer && sourceOpen && !audioBuffer.updating) {
-          audioBuffer.appendBuffer(value);
-        } else {
-          chunks.push(value.buffer);
-        }
+        return true;
       }
 
-      // Signal end of stream
-      if (sourceOpen && mediaSource.readyState === 'open') {
-        try {
-          mediaSource.endOfStream();
-        } catch (e) {}
+      const ok = await done;
+      this.activeServerSettle = null;
+
+      if (ok) {
+        this.stopServerAudio();
+        if (!this.isStale(gen)) {
+          this.isSpeaking = false;
+          this.currentSpeakingText = '';
+          options?.onEnd?.();
+        }
+        resolve();
+        return true;
       }
 
-      // If no data ever arrived, finish
-      if (!started && !settled) {
-        finish();
-      }
-
-      return true;
+      // Server audio genuinely failed to play — hand over to the browser
+      // engine so the user still hears the utterance.
+      this.stopServerAudio();
+      this.isSpeaking = false;
+      this.currentSpeakingText = '';
+      resolve();
+      return false;
     } catch (err: any) {
       this.ttsAbortCtrl = null;
       if (err?.name === 'NotAllowedError') {
@@ -454,6 +449,7 @@ class SpeechEngine {
     options?: {
       rate?: number;
       pitch?: number;
+      voice?: string; // one-off voice id (e.g. male examiner) for this utterance
       onStart?: () => void;
       onEnd?: () => void;
       onBoundary?: (charIndex: number) => void;

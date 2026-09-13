@@ -67,6 +67,7 @@ export interface LessonRoadmapModule {
     tips: string[];
   };
   completed?: boolean;
+  completedAt?: number; // epoch ms — when the user finished the lesson drill
   score?: number;
 }
 
@@ -126,4 +127,20 @@ export interface SavedReport {
   testId?: string; // cambridge test id (evaluate-speech) or undefined for chat practice
   testLabel?: string; // human label e.g. 'Cambridge 2026 (Test-1)' or '1v1 Chat Practice'
   evaluation: SpeakingEvaluation;
+}
+
+/**
+ * A lesson-roadmap snapshot stored in the Custom Lesson history
+ * (`lumi_lesson_history`). Every completed test / practice session keeps its
+ * AI-generated lessons so a newer test NEVER deletes older ones — the list is
+ * ordered newest first, and each lesson's completed tick mark persists here.
+ */
+export interface SavedLessonPlan {
+  id: string; // unique lesson-history entry id
+  savedAt: number; // epoch ms — drives the newest-first ordering
+  source: 'cambridge' | 'practice';
+  testId?: string;
+  testLabel?: string; // human label e.g. 'Cambridge 2026 (Test-1)'
+  fingerprint: string; // module-id signature used to dedupe repeated saves
+  modules: LessonRoadmapModule[];
 }

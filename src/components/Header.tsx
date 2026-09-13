@@ -1,16 +1,15 @@
 import React from 'react';
-import { Sparkles, Award, BookOpen, MessageSquare, Volume2, VolumeX, RefreshCw, UserCheck, Settings } from 'lucide-react';
+import { Sparkles, Award, BookOpen, MessageSquare, Speech, Volume2, VolumeX, UserCheck, Settings } from 'lucide-react';
 import { UserProfile, SpeakingEvaluation } from '../types';
 import { USER_AVATAR_IMAGE, LUMI_PROFILE_IMAGE } from '../assets/characterAssets';
 
 interface HeaderProps {
-  currentView: 'diagnostic' | 'report' | 'lessons' | 'chat';
-  onSelectView: (view: 'diagnostic' | 'report' | 'lessons' | 'chat') => void;
+  currentView: 'diagnostic' | 'solutions' | 'report' | 'lessons' | 'chat';
+  onSelectView: (view: 'diagnostic' | 'solutions' | 'report' | 'lessons' | 'chat') => void;
   userProfile?: UserProfile | null;
   evaluation?: SpeakingEvaluation | null;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
-  onResetProfile: () => void;
   onOpenSettings: () => void;
 }
 
@@ -21,7 +20,6 @@ export const Header: React.FC<HeaderProps> = ({
   evaluation,
   voiceEnabled,
   onToggleVoice,
-  onResetProfile,
   onOpenSettings,
 }) => {
   return (
@@ -71,6 +69,21 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Cambridge Test</span>
+            </button>
+
+            <button
+              id="nav-solutions-btn"
+              type="button"
+              onClick={() => onSelectView('solutions')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                currentView === 'solutions'
+                  ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
+                  : 'text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a]/50'
+              }`}
+              title="Cambridge Solutions — Lumi answers Cambridge questions live"
+            >
+              <Speech className="w-3.5 h-3.5" />
+              <span>Solutions</span>
             </button>
 
             <button
@@ -168,18 +181,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Settings className="w-4 h-4" />
           </button>
-
-          {userProfile && (
-            <button
-              id="header-reset-profile"
-              type="button"
-              onClick={onResetProfile}
-              className="p-2 rounded-xl border border-[#44475a] bg-[#21222c] hover:bg-[#44475a] text-[#6272a4] hover:text-[#f8f8f2] transition-colors"
-              title="Edit Profile Preferences"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          )}
         </div>
       </div>
 
@@ -192,6 +193,13 @@ export const Header: React.FC<HeaderProps> = ({
             className={`px-2.5 py-1 rounded-lg ${currentView === 'diagnostic' ? 'bg-[#bd93f9] text-[#282a36] font-bold' : 'text-[#6272a4]'}`}
           >
             Cambridge
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectView('solutions')}
+            className={`px-2.5 py-1 rounded-lg ${currentView === 'solutions' ? 'bg-[#bd93f9] text-[#282a36] font-bold' : 'text-[#6272a4]'}`}
+          >
+            Solutions
           </button>
           <button
             type="button"

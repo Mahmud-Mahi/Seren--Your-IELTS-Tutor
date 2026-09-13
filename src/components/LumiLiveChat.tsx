@@ -38,6 +38,22 @@ interface LumiLiveChatProps {
 // guards against a stalled TTS stream that never fires onEnd (90s).
 const SPEECH_HANDOFF_CAP_MS = 90_000;
 
+// The chat is a two-mode messenger (Interview / Casual Chat). New users land
+// directly in the 1v1 Interview right after onboarding, and the last-used mode
+// is remembered so returning users never lose their place when they come back
+// to the chat tab.
+const CHAT_MODE_KEY = 'lumi_chat_mode';
+
+function loadSavedChatMode(): 'Interview' | 'Casual Chat' {
+  try {
+    const saved = localStorage.getItem(CHAT_MODE_KEY);
+    if (saved === 'Interview' || saved === 'Casual Chat') return saved;
+  } catch {}
+  // No saved preference yet (fresh user / onboarding just completed) → the
+  // interview is the post-onboarding experience.
+  return 'Interview';
+}
+
 export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   userProfile,
   evaluation,
@@ -56,7 +72,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   // chat avatar shows the "speaking" image while she talks and falls back to the
   // greeting image when idle.
   const [lumiTalking, setLumiTalking] = useState(false);
-  const [selectedTopicMode, setSelectedTopicMode] = useState<'Interview' | 'Casual Chat'>('Casual Chat');
+  const [selectedTopicMode, setSelectedTopicMode] = useState<'Interview' | 'Casual Chat'>(loadSavedChatMode);
 
   // Inline message editing (WhatsApp-style). `editingMessageId` tracks which
   // bubble is being edited and `editingText` holds its live draft content.
@@ -117,15 +133,40 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   modeRef.current = selectedTopicMode;
 
   // ---- Single continuous chat thread ----
-  // First-ever visit: Lumi speaks first (a friendly greeting arrives before
-  // the user types anything). Every later visit: the full history is already
-  // in the scroll area and the user simply continues the conversation.
+  // First-ever visit (post-onboarding): land straight in the 1v1 INTERVIEW —
+  // Lumi greets and immediately starts a Part 1 topic from the question bank
+  // (3-6 questions from one topic, then evaluation). Returning visits: the
+  // full history is already in the scroll area and the user simply continues
+  // (an in-progress interview rehydrates its topic/question/answer state).
   useEffect(() => {
     if (bootedRef.current) return;
     bootedRef.current = true;
 
-    if (messages.length === 0) {
-      setSelectedTopicMode('Casual Chat');
+    if (modeRef.current === 'Interview') {
+      const session = loadInterviewSession();
+      if (interviewMessages.length > 0 && session && session.questions.length > 0) {
+        // Returning to an in-progress interview: the chat bubbles alone are
+        // NOT enough — rehydrate the question-flow state machine (topic,
+        // question list, index, answers) that only lives in React state +
+        // the persisted interview session.
+        const finished = session.currentQuestionIdx >= session.questions.length;
+        setCurrentTopic(session.topic);
+        setTopicQuestions(session.questions);
+        setCurrentQuestionIdx(session.currentQuestionIdx);
+        setUserAnswers(session.userAnswers);
+        lastAnsweredIdxRef.current = session.lastAnsweredIdx;
+        finalizingInterviewRef.current = false;
+        setIsInterviewActive(!finished);
+        setIsLumiSpeakingQ(false);
+        setGreetingDone(true);
+        setIsEvaluating(false);
+      } else {
+        // Fresh user right after onboarding (or the last run finished & was
+        // cleared) → jump straight into a new Part 1 topic interview.
+        void startInterview();
+      }
+    } else if (messages.length === 0) {
+      // Casual thread empty — Lumi opens the friendly conversation.
       setGreetingDone(true);
       void handleStartCasualSession();
     }
@@ -137,6 +178,12 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   useEffect(() => {
     saveMessagesByMode(messagesByMode);
   }, [messagesByMode]);
+
+  // Remember the user's last-used mode so the chat tab reopens where they
+  // left off (Interview is the default for new/post-onboarding users).
+  useEffect(() => {
+    try { localStorage.setItem(CHAT_MODE_KEY, selectedTopicMode); } catch {}
+  }, [selectedTopicMode]);
 
   // Write helper: appends/replaces the CURRENT mode's thread only, so the two
   // threads never bleed into each other.
@@ -309,10 +356,13 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     setGhostSuggestion(null);
     setSttNotice('');
 
-    // Arm the mic only AFTER the start-chime has faded and the stream-open
-    // transient has passed — otherwise the chime is recorded into the answer
-    // and confuses Whisper on the first second of audio.
-    setTimeout(() => { activeAudioRecorder.start(); }, 400);
+    // Arm the mic as soon as the start-chime's attack has passed (200 ms) so
+    // the opening phrase of the answer is still captured. The old 400 ms wait
+    // meant a user who started speaking right away lost the first words to
+    // Whisper, which then refined a mid-sentence/out-of-context fragment.
+    // The chime tail that remains is suppressed by echoCancellation on the
+    // mic stream, exactly like the Cambridge/common-lesson recorder path.
+    setTimeout(() => { activeAudioRecorder.start(); }, 200);
 
     const rec = createSpeechRecognizer({
       initialText: answerTextRef.current,
@@ -389,7 +439,14 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
           draftTranscript: draftText || finalText,
         });
         if (refined && refined.trim()) {
-          finalText = refined.trim();
+          // The composer wins over Whisper: if the user typed or edited an
+          // answer, that text is what they intend to send — silently swapping
+          // it for tiny.en's transcription is exactly what caused "out of
+          // context" messages. Whisper only supplies the text when there is
+          // no typed answer (i.e. a pure voice reply).
+          if (!typed) {
+            finalText = refined.trim();
+          }
         }
       } catch (e) {
         console.warn('Interview transcription refinement notice:', e);
@@ -870,12 +927,22 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       }
     } else {
       soundFX.playChime('start');
+      // Cut off Lumi's still-streaming speech BEFORE arming the mic. If her
+      // TTS is playing when the MediaRecorder opens, her voice gets recorded
+      // from the speakers and Whisper then "refines" the answer into HER
+      // words — a completely out-of-context transcript. Every other recording
+      // flow (Cambridge test, custom lessons, interview mode below) stops
+      // Lumi first; this casual-chat path was the only one that didn't.
+      lumiVoice.stop();
       // A new recording invalidates any pending Whisper suggestion.
       setGhostSuggestion(null);
       recognizerRef.current?.setBaseTranscript(inputText);
-      // Arm the mic only AFTER the start-chime has faded so the chime is
-      // never captured in the recording (confuses Whisper).
-      setTimeout(() => { activeAudioRecorder.start(); }, 400);
+      // Arm the mic as soon as the start-chime's attack has passed. Waiting
+      // a full 400 ms let the user's opening phrase slip past the recorder,
+      // so Whisper only heard a mid-sentence fragment and produced a
+      // truncated/out-of-context refinement. (Chime tail is suppressed by the
+      // echoCancellation on the mic stream, same as the Cambridge flow.)
+      setTimeout(() => { activeAudioRecorder.start(); }, 200);
       recognizerRef.current?.start();
     }
   };

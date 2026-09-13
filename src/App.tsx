@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, SpeakingEvaluation, SavedReport } from './types';
+import { UserProfile, SpeakingEvaluation, SavedReport, SavedLessonPlan } from './types';
 import { Header } from './components/Header';
 import { OnboardingModal } from './components/OnboardingModal';
-import { DiagnosticTest } from './components/DiagnosticTest';
+import { CambridgeTest } from './components/CambridgeTest';
 import { EvaluationReport } from './components/EvaluationReport';
 import { LessonStudio } from './components/LessonStudio';
 import { LumiLiveChat } from './components/LumiLiveChat';
+import { CambridgeSolutions } from './components/CambridgeSolutions';
 import { SettingsModal } from './components/SettingsModal';
 import { lumiVoice } from './utils/speech';
 import { normalizeEvaluation } from './utils/evaluation';
+import {
+  loadLessonHistory,
+  saveLessonPlan,
+  markLessonComplete,
+} from './utils/lessonHistory';
 
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
@@ -43,13 +49,19 @@ export default function App() {
   });
   const [activeReportId, setActiveReportId] = useState<string>('');
 
-  const [currentView, setCurrentView] = useState<'diagnostic' | 'report' | 'lessons' | 'chat'>(() => {
+  // Custom Lesson history: the AI-generated lesson roadmap of EVERY completed
+  // test / practice session is kept here (newest first) so a newer test never
+  // deletes older lessons. Per-lesson tick marks persist in the same store
+  // (lumi_lesson_history).
+  const [lessonPlans, setLessonPlans] = useState<SavedLessonPlan[]>(() => loadLessonHistory());
+
+  const [currentView, setCurrentView] = useState<'diagnostic' | 'solutions' | 'report' | 'lessons' | 'chat'>(() => {
     try {
       // Resume exactly where the user left off — this is persisted on every
       // tab change, so a mid-diagnostic session or a specific tab survives a
       // server restart / reload.
       const saved = localStorage.getItem('lumi_view');
-      if (saved === 'diagnostic' || saved === 'report' || saved === 'lessons' || saved === 'chat') {
+      if (saved === 'diagnostic' || saved === 'solutions' || saved === 'report' || saved === 'lessons' || saved === 'chat') {
         return saved;
       }
       // No saved view yet: if a diagnostic was already completed, drop the
@@ -102,6 +114,25 @@ export default function App() {
     setActiveReportId(legacyId);
   }, [userProfile, evaluation, history]);
 
+  // Self-healing sync: keep the active evaluation's Custom Lessons archived in
+  // the lesson history. Whenever the active roadmap isn't in the store yet
+  // (fresh test completion, legacy user, or lessons dropped by the old
+  // id-based dedupe), it gets saved; otherwise this is a no-op. This replaces
+  // the old one-time backfill and guarantees the lessons of the test you just
+  // finished always appear in Custom Lessons.
+  useEffect(() => {
+    if (!userProfile || !evaluation) return;
+    if (!evaluation.lessonRoadmap?.length) return;
+    setLessonPlans(
+      saveLessonPlan(evaluation, {
+        source: evaluation.testId === 'practice-chat' ? 'practice' : 'cambridge',
+        testId: evaluation.testId,
+        testLabel:
+          evaluation.testLabel || (evaluation.testId ? 'Cambridge Test' : 'Practice Report'),
+      })
+    );
+  }, [userProfile, evaluation]);
+
   useEffect(() => {
     try {
       localStorage.setItem('lumi_view', currentView);
@@ -112,7 +143,7 @@ export default function App() {
   // the new view mounts — its own greeting effects queue fresh speech only
   // after this. (A useEffect watching currentView would run too late and kill
   // the new tab's greeting instead of the old tab's voice.)
-  const handleSelectView = (view: 'diagnostic' | 'report' | 'lessons' | 'chat') => {
+  const handleSelectView = (view: 'diagnostic' | 'solutions' | 'report' | 'lessons' | 'chat') => {
     lumiVoice.stop();
     setCurrentView(view);
   };
@@ -121,6 +152,11 @@ export default function App() {
     lumiVoice.stop();
     setUserProfile(profile);
     setShowOnboarding(false);
+    // Post-onboarding the user lands directly in the 1v1 Interview (not
+    // Casual Chat) — Lumi greets and starts a fresh Part 1 topic interview.
+    try {
+      localStorage.setItem('lumi_chat_mode', 'Interview');
+    } catch {}
     setCurrentView('chat');
   };
 
@@ -134,6 +170,15 @@ export default function App() {
       testId: normalized.testId,
       testLabel: normalized.testLabel || 'Cambridge Test',
     });
+    // Archive this test's Custom Lessons so the next test appends instead of
+    // overwriting them.
+    setLessonPlans(
+      saveLessonPlan(normalized, {
+        source: 'cambridge',
+        testId: normalized.testId,
+        testLabel: normalized.testLabel || 'Cambridge Test',
+      })
+    );
     setCurrentView('report');
   };
 
@@ -166,25 +211,6 @@ export default function App() {
     setActiveReportId(id);
   };
 
-  const handleResetProfile = () => {
-    lumiVoice.stop();
-    // Full reset: back to a fresh diagnostic on next launch
-    try {
-      localStorage.removeItem('lumi_user_eval');
-      localStorage.removeItem('lumi_user_profile');
-      localStorage.removeItem('lumi_view');
-      localStorage.removeItem('lumi_diag_progress');
-      localStorage.removeItem('lumi_eval_history');
-      localStorage.removeItem('lumi_cambridge_progress');
-    } catch {}
-    setEvaluation(null);
-    setHistory([]);
-    setActiveReportId('');
-    setUserProfile(null);
-    setCurrentView('diagnostic');
-    setShowOnboarding(true);
-  };
-
   const handleToggleVoice = () => {
     if (voiceEnabled) {
       lumiVoice.stop();
@@ -209,14 +235,13 @@ export default function App() {
         evaluation={evaluation}
         voiceEnabled={voiceEnabled}
         onToggleVoice={handleToggleVoice}
-        onResetProfile={handleResetProfile}
         onOpenSettings={() => setShowSettings(true)}
       />
 
       {/* Primary Workspace Viewport */}
       <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col">
         {userProfile && currentView === 'diagnostic' && (
-          <DiagnosticTest
+          <CambridgeTest
             userProfile={userProfile}
             voiceEnabled={voiceEnabled}
             onToggleVoice={handleToggleVoice}
@@ -244,6 +269,10 @@ export default function App() {
             userProfile={userProfile}
             voiceEnabled={voiceEnabled}
             onToggleVoice={handleToggleVoice}
+            lessonPlans={lessonPlans}
+            onMarkLessonComplete={(planId, moduleId) =>
+              setLessonPlans(markLessonComplete(planId, moduleId))
+            }
           />
         )}
 
@@ -268,8 +297,23 @@ export default function App() {
                 source: 'practice',
                 testLabel: stamped.testLabel,
               });
+              // Archive the practice session's lessons too (newest first).
+              setLessonPlans(
+                saveLessonPlan(stamped, {
+                  source: 'practice',
+                  testLabel: stamped.testLabel,
+                })
+              );
               setCurrentView('report');
             }}
+          />
+        )}
+
+        {userProfile && currentView === 'solutions' && (
+          <CambridgeSolutions
+            userProfile={userProfile}
+            voiceEnabled={voiceEnabled}
+            onToggleVoice={handleToggleVoice}
           />
         )}
       </main>
