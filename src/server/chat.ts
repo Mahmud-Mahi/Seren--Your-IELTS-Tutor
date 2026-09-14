@@ -45,3 +45,29 @@ export function generateFallbackChatResponse(userProfile: any, message: string, 
     }
   };
 }
+
+// Deterministic wrap-up summary for a Custom Lesson. Used when the model hits
+// the follow-up cap without delivering a summary, or claims the lesson is
+// complete but omits one — honest, generic-but-true content, never fabricated
+// specifics.
+export function buildDeterministicLessonSummary(
+  lessonContext: any,
+  rounds: number
+): { improved: string[]; toTargetBand: string[] } {
+  const ctx = lessonContext || {};
+  const focus = ctx.focusArea || ctx.title || 'this speaking skill';
+  const improved: string[] = [
+    `Completed ${rounds} focused round${rounds === 1 ? '' : 's'} on ${focus}, working with your own answers.`,
+  ];
+  if (ctx.exampleError) {
+    improved.push(`Re-drilled your real slip ("${String(ctx.exampleError).slice(0, 90)}") toward Band 8.5 phrasing.`);
+  }
+  improved.push('Practiced re-saying corrected answers immediately after feedback — the fastest way to make a fix stick.');
+
+  const toTargetBand: string[] = [
+    `Use ${focus} in 2-3 full spoken answers every day until it feels automatic.`,
+    "Re-record this lesson's drill and compare your delivery with the Band 9 sample.",
+    `Ask Lumi for a fresh Custom Lesson drill on ${focus} to keep the fix sharp under exam pressure.`,
+  ];
+  return { improved, toTargetBand };
+}

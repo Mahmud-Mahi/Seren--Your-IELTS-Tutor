@@ -6,19 +6,74 @@ import {
   LUMI_CHAT_SYSTEM,
   LUMI_CASUAL_SCHEMA,
   LUMI_CHAT_SCHEMA,
+  buildLessonChatPrompt,
+  LESSON_CHAT_SYSTEM,
+  LESSON_CHAT_SCHEMA,
+  LESSON_MAX_FOLLOW_UPS,
   buildLessonDrillPrompt,
   LESSON_DRILL_SCHEMA,
 } from '../prompts';
-import { generateFallbackChatResponse } from '../chat';
+import { generateFallbackChatResponse, buildDeterministicLessonSummary } from '../chat';
 
 export function registerLessonRoutes(app: express.Express): void {
   // Interactive Lumi Chat / IELTS Speaking Session Endpoint
   app.post('/api/lumi-chat', async (req, res) => {
     try {
-      const { userProfile, evaluation, conversationHistory, message, mode } = req.body;
+      const { userProfile, evaluation, conversationHistory, message, mode, lessonContext, followUpIndex } = req.body;
       const pinnedProvider = (req.get('x-lumi-provider') || '').toLowerCase() || null;
 
       const isCasualMode = mode === 'Casual Chat';
+      // Lesson Practice mode runs the bounded, error-focused session protocol
+      // (see prompts.ts): ONE skill, max LESSON_MAX_FOLLOW_UPS follow-up
+      // rounds, then a wrap-up summary and lessonComplete.
+      const isLessonMode =
+        !isCasualMode && typeof mode === 'string' && mode.startsWith('Lesson Practice:');
+
+      if (isLessonMode) {
+        const roundIndex = Number.isFinite(Number(followUpIndex))
+          ? Math.max(0, Math.floor(Number(followUpIndex)))
+          : 0;
+
+        const { text, provider, model } = await callLLM({
+          systemInstruction: LESSON_CHAT_SYSTEM,
+          userPrompt: buildLessonChatPrompt({
+            lessonContext,
+            followUpIndex: roundIndex,
+            conversationHistory,
+            message,
+          }),
+          json: true,
+          jsonSchemaHint: LESSON_CHAT_SCHEMA,
+          temperature: 0.8,
+          pinnedProvider,
+        });
+
+        const parsed = parseJsonLoose(text);
+        if (!parsed || !parsed.replyText) {
+          throw new Error('LLM returned malformed chat JSON');
+        }
+        parsed.followUpNumber = roundIndex;
+
+        // Guarantee a summary whenever the lesson is declared complete.
+        const summaryMissing =
+          !parsed.summary ||
+          !Array.isArray(parsed.summary.improved) ||
+          parsed.summary.improved.length === 0;
+        if (parsed.lessonComplete && summaryMissing) {
+          parsed.summary = buildDeterministicLessonSummary(lessonContext, Math.min(roundIndex + 1, LESSON_MAX_FOLLOW_UPS + 1));
+        }
+
+        // Deterministic cap enforcement: on/after the final round the lesson
+        // MUST wrap up even if a chatty model ignored the FINAL ROUND rule.
+        if (roundIndex >= LESSON_MAX_FOLLOW_UPS) {
+          parsed.lessonComplete = true;
+          if (summaryMissing) {
+            parsed.summary = buildDeterministicLessonSummary(lessonContext, Math.min(roundIndex + 1, LESSON_MAX_FOLLOW_UPS + 1));
+          }
+        }
+
+        return res.json({ success: true, reply: parsed, provider, model });
+      }
 
       const prompt = buildLumiChatPrompt({
         isCasual: isCasualMode,

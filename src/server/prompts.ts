@@ -65,7 +65,7 @@ SCORING RULES:
 2. Score from the transcript ONLY. Empty or near-empty parts get NO credit and pull the band toward 4.0; a near-empty test scores 4.0-5.0, never 7.0+, never the target band.
 3. Pillars (fluency, lexical, grammar, pronunciation): score, cefr, 2-3 strengths, 2-3 growthAreas, 1-2 sentence examinerCommentary in Lumi's friendly-expert voice.
 4. upgradedExpressions: [] (separate pass). pronunciationTips: [] (separate pass).
-5. lessonRoadmap: exactly 4 modules targeting the student's errors and target band.`;
+5. lessonRoadmap: exactly 4 modules. Each module targets ONE specific error the student actually made: set focusArea (the exact skill to fix, not a generic topic) and exampleError (quote one real sentence from the transcripts above that shows that error).`;
 }
 
 export const EVALUATE_SPEECH_SCHEMA = `{
@@ -82,7 +82,7 @@ export const EVALUATE_SPEECH_SCHEMA = `{
   "upgradedExpressions": [],
   "pronunciationTips": [],
   "stats": { "totalWords": 145, "estimatedWPM": 115, "pauseFluencyRating": "Smooth|Moderate Pauses|Hesitant", "varietyRating": "High|Good|Repetitive" },
-  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
+  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "focusArea": "the ONE skill this lesson fixes", "exampleError": "one real sentence the student said that shows the error", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
 }
 (lessonRoadmap: exactly 4 modules)`;
 
@@ -112,7 +112,7 @@ SCORING RULES:
 2. Score from the ACTUAL answers ONLY; empty answers get NO credit.
 3. Pillars (fluency, lexical, grammar, pronunciation): score, cefr, 2-3 strengths, 2-3 growthAreas, 1-2 sentence examinerCommentary.
 4. upgradedExpressions: [] (built server-side from the model answer bank). pronunciationTips: [] (separate pass).
-5. lessonRoadmap: exactly 4 modules targeting the student's errors and target band.`;
+5. lessonRoadmap: exactly 4 modules. Each module targets ONE specific error the student actually made: set focusArea (the exact skill to fix, not a generic topic) and exampleError (quote one real sentence from the answers above that shows that error).`;
 }
 
 export const INTERVIEW_PRACTICE_SCHEMA = `{
@@ -129,7 +129,7 @@ export const INTERVIEW_PRACTICE_SCHEMA = `{
   "upgradedExpressions": [],
   "pronunciationTips": [],
   "stats": { "totalWords": 100, "estimatedWPM": 110, "pauseFluencyRating": "Smooth|Moderate Pauses|Hesitant", "varietyRating": "High|Good|Repetitive" },
-  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
+  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "focusArea": "the ONE skill this lesson fixes", "exampleError": "one real sentence the student said that shows the error", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
 }
 (lessonRoadmap: exactly 4 modules)`;
 // ---------------------------------------------------------------------------
@@ -222,4 +222,74 @@ export const LESSON_DRILL_SCHEMA = `{
   "keyVocabulary": ["4-6 band 8+ words/phrases with short glosses"],
   "challengeQuestion": "a harder IELTS-style challenge question",
   "band9Guidance": "how a band 9 answer would be structured"
+}`;
+
+// ---------------------------------------------------------------------------
+// Custom Lesson session protocol — bounded, error-focused micro-coaching.
+//
+// One lesson = ONE skill = ONE real error from the student's evaluation.
+// Round 0: feedback on the drill answer. Rounds 1-4: each follow-up re-drills
+// the SAME fix one layer deeper. Round 5 (or earlier when the fix lands): a
+// wrap-up summary (what improved / what to fix for the target band) and the
+// lesson is complete. The server enforces the cap; the client mirrors it.
+// ---------------------------------------------------------------------------
+
+export const LESSON_CHAT_SYSTEM =
+  "You are Lumi, a focused IELTS Speaking micro-coach. You fix exactly ONE skill per lesson and never drift to other topics. Be warm but precise — always quote the learner's own words when correcting.";
+
+export const LESSON_MAX_FOLLOW_UPS = 5;
+
+export function buildLessonChatPrompt(p: {
+  lessonContext: any;
+  followUpIndex: number;
+  conversationHistory?: any[];
+  message: string;
+}): string {
+  const { lessonContext, followUpIndex, conversationHistory, message } = p;
+  const chatTail = (conversationHistory || [])
+    .slice(-6)
+    .map((msg: any) => `${msg.sender === 'user' ? 'User' : 'Lumi'}: ${msg.text}`)
+    .join('\n');
+  const ctx = lessonContext || {};
+  const focus = ctx.focusArea || ctx.title || 'this speaking skill';
+  const errorLine = ctx.exampleError
+    ? `\n- The error we are fixing, from THEIR own words: "${ctx.exampleError}"`
+    : '';
+  const objectives = (ctx.objectives || []).map((o: string) => `  • ${o}`).join('\n');
+  const tips = (ctx.tips || []).map((t: string) => `  • ${t}`).join('\n');
+  const isFinalRound = followUpIndex >= LESSON_MAX_FOLLOW_UPS;
+
+  return `Focused Custom Lesson: ${ctx.title || 'Speaking drill'} | ${ctx.category || 'Speaking'} | learner: ${ctx.nickname || 'Learner'} | target Band ${ctx.targetBand || '7.5'} | current band ${ctx.currentBand || '—'}
+
+LESSON FOCUS — stay on THIS ONE skill only:
+- Skill: ${focus}${errorLine}
+- Objectives:
+${objectives || '  • Fix the error above'}
+- Drill tips:
+${tips || '  • Re-say the answer using the fix'}
+- Drill prompt they answered: "${ctx.drillPrompt || ''}"
+
+ROUND: follow-up #${followUpIndex} of max ${LESSON_MAX_FOLLOW_UPS}.${isFinalRound ? ' THIS IS THE FINAL ROUND — you may NOT ask any question.' : ''}
+
+TASK:
+- Reply in 2-4 sentences, warm and natural.
+- Quote the learner's exact phrase that missed the band, then give ONE Band 8.5 reframe (it goes in feedback.correctedSentence).
+- Every follow-up must make them RE-SAY their answer using the fix — a drill, not a chat. Go one layer deeper each round; never repeat earlier advice.
+- Stay on ${focus}. Never pivot topics, never add a second skill, never give generic advice.
+- mood describes Lumi RIGHT AFTER her reply: 'speaking' normally, 'encouraging' if they struggled, 'celebrating' when the fix lands. NEVER use 'listening'.
+- From round 3 on: if their latest answer already lands the fix, stop early — celebrate it, set lessonComplete to true and fill summary instead of asking another question.${isFinalRound ? `\n- FINAL ROUND: do NOT ask any question. Write a 2-4 sentence wrap-up, set lessonComplete to true and fill summary.improved (what concretely got better across the rounds) + summary.toTargetBand (the 2-3 fixes still needed to reach Band ${ctx.targetBand || '7.5'}).` : '\n- End your reply with ONE short follow-up question that drills the SAME fix.'}
+
+CHAT (last 6):
+${chatTail}
+
+LATEST USER: "${message}"`;
+}
+
+export const LESSON_CHAT_SCHEMA = `{
+  "replyText": "Lumi's reply (2-4 sentences; on the final round = wrap-up summary with NO question)",
+  "mood": "speaking|encouraging|celebrating",
+  "followUpNumber": 1,
+  "lessonComplete": false,
+  "feedback": { "correctedSentence": "...", "lexicalBoost": ["...", "..."], "ieltsTip": "..." },
+  "summary": { "improved": ["what concretely got better across the rounds"], "toTargetBand": ["the 2-3 fixes still needed for the target band"] }
 }`;

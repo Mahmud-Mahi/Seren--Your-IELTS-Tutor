@@ -84,6 +84,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // any follow-up reply feedback) is kept, newest appended last, and shown in
   // the scrollable feedback area — original answer + Band 8/8.5 phrasing each.
   const [feedbackHistory, setFeedbackHistory] = useState<any[]>([]);
+  // Bounded lesson arc: the initial drill feedback + at most MAX_FOLLOW_UPS
+  // follow-up rounds, then a wrap-up summary and the module is marked done.
+  // The server enforces the same cap — this mirrors it on the client.
+  const MAX_FOLLOW_UPS = 5;
+  const [followUpCount, setFollowUpCount] = useState(0);
+  const [lessonSummary, setLessonSummary] = useState<{
+    improved: string[];
+    toTargetBand: string[];
+  } | null>(null);
   // Central mood state machine (src/utils/lumiMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
   const [lumiMood, setLumiMood] = useLumiMood();
@@ -141,6 +150,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   useEffect(() => {
     setUserSpokenText('');
     setFeedbackHistory([]);
+    setFollowUpCount(0);
+    setLessonSummary(null);
     setConversationHistory([]);
     setIsRecording(false);
     recognizerRef.current?.stop();
@@ -237,6 +248,67 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     sayLumi(selectedModule.practiceDrill.modelBand9Sample);
   };
 
+  // Ground every AI call in THIS module's ONE skill + the student's real error
+  // so the session stays laser-focused instead of generic.
+  const buildLessonContext = () => ({
+    nickname: userProfile.nickname,
+    title: selectedModule?.title || '',
+    category: selectedModule?.category || '',
+    focusArea: selectedModule?.focusArea || selectedModule?.objectives?.[0] || selectedModule?.title || '',
+    exampleError: selectedModule?.exampleError || '',
+    objectives: selectedModule?.objectives || [],
+    drillPrompt: selectedModule?.practiceDrill?.prompt || '',
+    tips: selectedModule?.practiceDrill?.tips || [],
+    targetBand: userProfile.targetBand,
+    currentBand: evaluation?.predictedIeltsBand,
+  });
+
+  // Wrap up the lesson: show the summary card, persist the ✓ (optimistic tick
+  // + store) and celebrate. Called when the AI says lessonComplete, or when
+  // the follow-up cap is reached (client-side backstop).
+  const completeLesson = (summary?: { improved?: string[]; toTargetBand?: string[] }) => {
+    const fallback = {
+      improved: [`Completed a focused practice session on ${selectedModule?.title || 'this skill'}.`],
+      toTargetBand: [
+        `Keep drilling ${selectedModule?.title || 'this skill'} in 2-3 spoken answers every day.`,
+        'Re-record the drill and compare your delivery with the Band 9 sample.',
+      ],
+    };
+    setLessonSummary({
+      improved: summary?.improved?.length ? summary.improved : fallback.improved,
+      toTargetBand: summary?.toTargetBand?.length ? summary.toTargetBand : fallback.toTargetBand,
+    });
+    setLocalCompleted((prev) => ({ ...prev, [`${selectedPlanId}:${selectedModule.id}`]: true }));
+    onMarkLessonComplete(selectedPlanId, selectedModule.id);
+    setLumiMood('celebrating');
+    try {
+      confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
+    } catch (e) {}
+  };
+
+  // Jump to the next unfinished module in this plan (or any plan) after the
+  // wrap-up summary — the lesson is already marked done at this point.
+  const handleContinueToNextModule = () => {
+    const currentPlan = plans.find((p) => p.id === selectedPlanId);
+    if (currentPlan) {
+      const idx = currentPlan.modules.findIndex((m) => m.id === selectedModule.id);
+      const next = currentPlan.modules
+        .slice(idx + 1)
+        .find((m) => !isModuleDone(currentPlan.id, m));
+      if (next) {
+        handleSelectModule(currentPlan.id, next);
+        return;
+      }
+    }
+    for (const plan of plans) {
+      const next = plan.modules.find((m) => !isModuleDone(plan.id, m));
+      if (next) {
+        handleSelectModule(plan.id, next);
+        return;
+      }
+    }
+  };
+
   const handleSubmitDrillAnswer = async () => {
     if (!userSpokenText.trim()) return;
     recognizerRef.current?.stop();
@@ -260,6 +332,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           conversationHistory: [],
           message: userMsg,
           mode: `Lesson Practice: ${selectedModule.title}`,
+          lessonContext: buildLessonContext(),
+          followUpIndex: followUpCount,
         }),
       });
 
@@ -274,27 +348,24 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         setLumiMood(normalizeReplyMood(data.reply.mood) || 'celebrating');
         sayLumi(data.reply.replyText);
         soundFX.playChime('success');
-        
+
         setConversationHistory([
           { sender: 'user', text: userMsg },
           { sender: 'lumi', text: data.reply.replyText }
         ]);
-        
+
         setUserSpokenText('');
 
-        // Mark the lesson as completed: optimistic tick for instant feedback,
-        // then persist it to the lesson history store (lumi_lesson_history)
-        // via App so the ✓ survives reloads and new tests.
-        setLocalCompleted((prev) => ({ ...prev, [`${selectedPlanId}:${selectedModule.id}`]: true }));
-        onMarkLessonComplete(selectedPlanId, selectedModule.id);
-
-        try {
-          confetti({
-            particleCount: 50,
-            spread: 60,
-            origin: { y: 0.7 },
-          });
-        } catch (e) {}
+        // Advance the bounded lesson arc. The module is only marked done when
+        // the wrap-up summary arrives (or the follow-up cap forces it) — the
+        // ✓ is no longer granted on the first drill evaluation.
+        const roundIndex = followUpCount;
+        setFollowUpCount(roundIndex + 1);
+        if (data.reply.lessonComplete) {
+          completeLesson(data.reply.summary);
+        } else if (roundIndex >= MAX_FOLLOW_UPS) {
+          completeLesson();
+        }
       }
     } catch (e) {
       setIsEvaluatingDrill(false);
@@ -333,6 +404,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           conversationHistory: currentHist,
           message: userMsg,
           mode: `Lesson Practice: ${selectedModule.title}`,
+          lessonContext: buildLessonContext(),
+          followUpIndex: followUpCount,
         }),
       });
 
@@ -361,6 +434,17 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         ]);
         
         setUserSpokenText('');
+
+        // Advance the bounded lesson arc; `followUpCount` (stale closure value)
+        // is the round index this reply was sent as.
+        const roundIndex = followUpCount;
+        setFollowUpCount(roundIndex + 1);
+        if (data.reply.lessonComplete) {
+          completeLesson(data.reply.summary);
+        } else if (roundIndex >= MAX_FOLLOW_UPS) {
+          // Hard stop: no more than 5 follow-up rounds, ever.
+          completeLesson();
+        }
       } else {
         sayLumi("I didn't quite catch that. Could you try replying again?");
       }
@@ -721,9 +805,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                       <Sparkles className="w-4 h-4 text-[#bd93f9]" />
                       Lumi's Real-Time Drill Feedback
                     </span>
-                    <span className="text-xs font-semibold text-[#50fa7b] flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Module Complete!
-                    </span>
+                    {lessonSummary ? (
+                      <span className="text-xs font-semibold text-[#50fa7b] flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Module Complete!
+                      </span>
+                    ) : (
+                      <span className="text-xs font-semibold text-[#f1fa8c] flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" /> Follow-up {Math.min(followUpCount, MAX_FOLLOW_UPS)}/{MAX_FOLLOW_UPS}
+                      </span>
+                    )}
                   </div>
 
                   {/* Scroll area: every round of feedback, from the initial
@@ -804,10 +894,54 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
               )}
             </AnimatePresence>
 
+            {/* Wrap-up summary — replaces the reply box once the lesson completes */}
+            {feedbackHistory.length > 0 && lessonSummary && (
+              <div className="p-4 rounded-2xl bg-[#21222c] border border-[#50fa7b]/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#50fa7b] uppercase tracking-wider flex items-center gap-1.5">
+                    <Award className="w-4 h-4" />
+                    Lesson Complete
+                  </span>
+                  <span className="text-[10px] font-semibold text-[#6272a4]">
+                    Target Band {userProfile.targetBand}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#50fa7b]">
+                    What you improved:
+                  </span>
+                  <ul className="space-y-1 pl-4 list-disc text-[11px] text-[#f8f8f2]/85">
+                    {lessonSummary.improved.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-[#ffb86c]">
+                    To reach Band {userProfile.targetBand}, keep fixing:
+                  </span>
+                  <ul className="space-y-1 pl-4 list-disc text-[11px] text-[#f8f8f2]/85">
+                    {lessonSummary.toTargetBand.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleContinueToNextModule}
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36] font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                >
+                  <span>Continue to Next Module</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* Reply to Lumi — placed BELOW the feedback scroll area so it is
                 never clipped. Record Reply is blocked while a send is in flight
-                and Send stays visible but disabled while the input is empty. */}
-            {feedbackHistory.length > 0 && (
+                and Send stays visible but disabled while the input is empty.
+                Hidden once the lesson wraps up (summary card takes over). */}
+            {feedbackHistory.length > 0 && !lessonSummary && (
               <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-3">
                 <span className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
                   <Mic className="w-3.5 h-3.5 text-[#8be9fd]" />

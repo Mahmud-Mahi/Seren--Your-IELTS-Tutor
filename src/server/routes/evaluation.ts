@@ -12,6 +12,7 @@ import {
 } from '../prompts';
 import {
   normalizeEvaluationShape,
+  backfillLessonFocus,
   splitIntoSentences,
   resolveResponsePart,
   UPGRADE_CHUNK_SIZE,
@@ -93,6 +94,8 @@ app.post('/api/evaluate-speech', async (req, res) => {
       // Fill everything the model omitted (stats, pillars, band as number…)
       // so a truncated/rate-limited response can never blank the report
       normalizeEvaluationShape(parsed);
+      // Guarantee every roadmap module is anchored to one real, specific error
+      backfillLessonFocus(parsed);
 
       // GUARANTEED-COVERAGE upgrade pass: always chunked, one call per
       // ≤12-sentence batch, with deterministic index/part stamping so every
@@ -274,6 +277,8 @@ app.post('/api/evaluate-speech', async (req, res) => {
         throw new Error('LLM returned malformed evaluation JSON');
       }
       normalizeEvaluationShape(parsed);
+      // Guarantee every roadmap module is anchored to one real, specific error
+      backfillLessonFocus(parsed);
 
       // Deterministic upgrade stamping: override LLM output with JSON model answers
       if (allSentences.length > 0) {

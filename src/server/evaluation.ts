@@ -362,3 +362,62 @@ export function generateFallbackEvaluation(userProfile: any, responses: any[], s
   };
 }
 
+// ---------------------------------------------------------------------------
+// Deterministic lesson-focus backfill.
+//
+// Every roadmap module must be anchored to ONE specific error. The evaluation
+// LLM is instructed to set focusArea/exampleError, but a lazy or truncated
+// model may omit them — this pass guarantees each module is still grounded in
+// THIS student's real weaknesses by mapping the module category to its IELTS
+// pillar and pulling the growth area + a genuine upgraded expression.
+// ---------------------------------------------------------------------------
+
+const CATEGORY_PILLAR: Record<string, 'fluency' | 'lexical' | 'grammar' | 'pronunciation'> = {
+  Fluency: 'fluency',
+  Vocabulary: 'lexical',
+  Grammar: 'grammar',
+  Pronunciation: 'pronunciation',
+  'Part 2 Cue Card': 'fluency',
+  'Examiner Strategy': 'grammar',
+};
+
+export function backfillLessonFocus(ev: any): void {
+  const modules = Array.isArray(ev?.lessonRoadmap) ? ev.lessonRoadmap : [];
+  if (!modules.length) return;
+  const upgrades: any[] = Array.isArray(ev?.upgradedExpressions) ? ev.upgradedExpressions : [];
+  const usedUpgrades = new Set<number>();
+
+  modules.forEach((m: any, i: number) => {
+    if (!m) return;
+    const pillarName = CATEGORY_PILLAR[m.category] || 'fluency';
+    const pillar = ev?.pillars?.[pillarName];
+
+    if (!m.focusArea || !String(m.focusArea).trim()) {
+      m.focusArea =
+        pillar?.growthAreas?.[0] ||
+        (Array.isArray(m.objectives) && m.objectives[0]) ||
+        m.title ||
+        'this speaking skill';
+    }
+
+    if (!m.exampleError || !String(m.exampleError).trim()) {
+      let pick: any = null;
+      for (let k = 0; k < upgrades.length; k++) {
+        const idx = (i + k) % upgrades.length;
+        const u = upgrades[idx];
+        if (!u || usedUpgrades.has(idx)) continue;
+        if (String(u.original || '').trim() && String(u.original) !== String(u.upgraded)) {
+          pick = u;
+          usedUpgrades.add(idx);
+          break;
+        }
+      }
+      m.exampleError = pick
+        ? String(pick.original)
+        : pillar?.growthAreas?.[0]
+          ? `Tendency to fix: ${pillar.growthAreas[0]}`
+          : '';
+    }
+  });
+}
+

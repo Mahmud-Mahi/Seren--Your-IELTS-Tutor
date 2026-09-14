@@ -60,6 +60,12 @@ export interface LessonRoadmapModule {
   duration: string;
   description: string;
   objectives: string[];
+  // ONE specific skill this lesson drills (e.g. "third-conditional hypotheticals").
+  // Stamped by the evaluation LLM, backfilled deterministically from the pillar
+  // growth areas when the model omits it — see src/server/evaluation.ts.
+  focusArea?: string;
+  // One real sentence the student actually said that shows the error being fixed.
+  exampleError?: string;
   practiceDrill: {
     type: 'rapid_fire' | 'cue_card' | 'lexical_boost' | 'shadowing' | 'mock_exam';
     prompt: string;
