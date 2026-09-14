@@ -18,6 +18,7 @@ import {
 } from '../data/cambridgeTests';
 import { LumiAvatar } from './LumiAvatar';
 import { lumiVoice, soundFX } from '../utils/speech';
+import { ScrollArea } from './ScrollArea';
 
 interface CambridgeSolutionsProps {
   userProfile: UserProfile;
@@ -65,9 +66,6 @@ interface TopicGroup {
 
 const slugTopicKey = (value: string) => value.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
 
-const trimSubtitle = (text: string) =>
-  text.length > 260 ? `${text.slice(0, 260).trimEnd()}…` : text;
-
 export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   userProfile,
   voiceEnabled,
@@ -81,7 +79,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentQIndex, setCurrentQIndex] = useState(-1);
   const [currentSpeaker, setCurrentSpeaker] = useState<'examiner' | 'lumi' | null>(null);
-  const [currentSpokenText, setCurrentSpokenText] = useState('');
   const [finishedTopics, setFinishedTopics] = useState<Record<string, boolean>>({});
 
   // The playback loop lives in refs so the async session never closes over
@@ -111,6 +108,13 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
 
   const topicKeyOf = (topic: string) => `${selectedTest?.id || 'test'}::${activePart}::${topic}`;
 
+  // The per-part cue tips (identical for every question of the part) — shown
+  // in the "What to notice" box directly under Lumi's speech box.
+  const partCueTips: string[] = useMemo(
+    () => (selectedTest?.questions || []).find((q) => q.part === activePart)?.cueTips || [],
+    [selectedTest, activePart]
+  );
+
   // ---------------------------------------------------------------------------
   // Lifecycle guards
   // ---------------------------------------------------------------------------
@@ -124,6 +128,17 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     };
   }, []);
 
+  // Lumi greets the user out loud when the tab opens — explaining the flow
+  // by voice instead of only showing it in the speech box. Starting a session
+  // (which calls lumiVoice.stop()) or leaving the tab cuts it off cleanly.
+  useEffect(() => {
+    if (!voiceEnabled) return;
+    void lumiVoice.speak(
+      `Hey ${userProfile.nickname}! Pick a topic below and press Play — the examiner asks, I answer, and you pick up the phrasing, pacing and idea.`
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Playback helpers
   // ---------------------------------------------------------------------------
@@ -132,7 +147,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     setIsPlaying(false);
     setCurrentQIndex(-1);
     setCurrentSpeaker(null);
-    setCurrentSpokenText('');
   };
 
   const stopAll = () => {
@@ -182,7 +196,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         await waitWhilePaused(gen, topicKey);
         continue;
       }
-      setCurrentSpokenText(text);
       await lumiVoice.speak(text, { voice });
       if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
       if (pausedRef.current) continue; // paused during the turn → replay it
@@ -203,7 +216,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     setFinishedTopics((prev) => ({ ...prev, [topicKey]: false }));
     setCurrentQIndex(-1);
     setCurrentSpeaker(null);
-    setCurrentSpokenText('');
     lumiVoice.stop();
     soundFX.playChime('start');
 
@@ -278,11 +290,14 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     setActivePart(part);
   };
 
-  // Voice muted mid-session → stop immediately (the play button is also
-  // disabled while muted).
+  // Voice muted → cut the idle greeting instantly, and stop any running
+  // session too (the play button is also disabled while muted).
   useEffect(() => {
-    if (!voiceEnabled && activeTopicRef.current) {
-      stopAll();
+    if (!voiceEnabled) {
+      lumiVoice.stop();
+      if (activeTopicRef.current) {
+        stopAll();
+      }
     }
   }, [voiceEnabled]);
 
@@ -302,9 +317,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       : 'encouraging'
     : 'greeting';
 
-  const stageSubtitle = activeTopicKey
-    ? trimSubtitle(currentSpokenText)
-    : `Hi ${userProfile.nickname}! Pick a topic below and press Play — the examiner asks, I answer, and you pick up the phrasing, pacing and fluency.`;
+  // The speech box always shows the greeting — during playback the live
+  // question/answer text is intentionally not revealed there; what to listen
+  // for is shown by the "What to notice" box under the avatar instead.
+  const stageSubtitle = `Hey ${userProfile.nickname}! Pick a topic below and press Play — the examiner asks, I answer, and you pick up the phrasing, pacing and idea.`;
 
   const playButtonTitle = (isActive: boolean, isDone: boolean) =>
     !voiceEnabled
@@ -318,51 +334,65 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       : 'Play this topic — examiner asks, Lumi answers live';
 
   return (
-    <div className="space-y-5">
-        {/* Tab header: name, explainer, test picker */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-[#bd93f9]/30 to-[#8be9fd]/30 border border-[#bd93f9]/40 text-[#bd93f9] shrink-0">
-              <Speech className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-extrabold text-[#f8f8f2] tracking-tight">
-                Cambridge Solutions <span className="text-[#8be9fd]">·</span> Live with Lumi
-              </h1>
-              <p className="text-xs sm:text-sm text-[#6272a4] max-w-2xl leading-relaxed">
-                A live Q&amp;A class on the Cambridge question bank: the examiner reads each
-                question in a male voice, Lumi answers like an IELTS examinee with the Band 8+
-                sample — watch the phrasing, pacing and fluency you should copy.
-              </p>
-            </div>
+    <div className="w-full max-w-6xl mx-auto flex flex-col flex-1 min-h-0 space-y-3 sm:space-y-4">
+      {/* Compact header banner — P1/P2/P3 + test selection inline, matching the
+          Cambridge Test / 1v1 tabs so the scroll area gets the space below */}
+      <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 sm:p-3.5 rounded-2xl bg-[#21222c]/80 border border-[#44475a] backdrop-blur-md shadow-lg">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 shrink-0 rounded-xl bg-[#bd93f9]/20 border border-[#bd93f9]/40 flex items-center justify-center text-[#bd93f9]">
+            <Speech className="w-5 h-5" />
           </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <label
-              htmlFor="solutions-test-select"
-              className="text-[10px] font-bold uppercase tracking-widest text-[#6272a4]"
-            >
-              Test
-            </label>
-            <select
-              id="solutions-test-select"
-              value={selectedTestId}
-              onChange={(e) => handleSelectTest(e.target.value)}
-              className="bg-[#282a36] text-[#f8f8f2] border border-[#44475a] rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:border-[#bd93f9] cursor-pointer"
-            >
-              {CAMBRIDGE_TESTS.map((t) => (
-                <option key={t.id} value={t.id} className="bg-[#282a36]">
-                  {t.label}
-                </option>
-              ))}
-            </select>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-[#f8f8f2] leading-tight">
+              Cambridge Solutions <span className="text-[#8be9fd]">·</span> Live with Lumi
+            </h2>
+            <p className="text-xs text-[#6272a4] mt-0.5 truncate">
+              Part {activePart}: {PART_TITLES[activePart]} — examiner asks, Lumi answers live
+            </p>
           </div>
         </div>
 
-        {/* Main grid: Lumi stage + the part's scroll area */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
-          {/* Lumi stage (4 cols) */}
-          <div className="lg:col-span-4">
+        <div className="flex items-center gap-2 shrink-0">
+          {([1, 2, 3] as const).map((part) => {
+            const qCount = (selectedTest?.questions || []).filter((q) => q.part === part).length;
+            return (
+              <button
+                key={`solutions-part-${part}`}
+                type="button"
+                onClick={() => handleSelectPart(part)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all whitespace-nowrap ${
+                  part === activePart
+                    ? 'bg-[#bd93f9]/15 border-[#bd93f9] text-[#bd93f9] shadow-md shadow-[#bd93f9]/10'
+                    : 'bg-[#282a36] border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2] hover:border-[#6272a4]'
+                }`}
+                title={`Part ${part}: ${PART_TITLES[part]} — ${PART_DESCRIPTIONS[part]} (${qCount} questions)`}
+              >
+                <span className="font-mono opacity-80">{part}</span>
+                <span>Part {part}</span>
+              </button>
+            );
+          })}
+          <select
+            id="solutions-test-select"
+            value={selectedTestId}
+            onChange={(e) => handleSelectTest(e.target.value)}
+            className="bg-[#282a36] text-[#f8f8f2] border border-[#44475a] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:border-[#bd93f9] cursor-pointer"
+          >
+            {CAMBRIDGE_TESTS.map((t) => (
+              <option key={t.id} value={t.id} className="bg-[#282a36]">
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Main grid: Lumi stage + the part's scroll area */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch flex-1 min-h-0">
+        {/* Lumi stage (4 cols) — height-capped to match the Q&A session */}
+        <div className="lg:col-span-4 flex flex-col min-h-0 lg:max-h-[calc(100dvh-9rem)]">
+          {/* Lumi avatar section */}
+          <div className="shrink-0">
             <LumiAvatar
               mood={stageMood}
               currentSpeech={stageSubtitle}
@@ -373,47 +403,35 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
               autoSpeak={false}
               idleMood="greeting"
             />
-            <div className="mt-3 rounded-2xl border border-[#44475a] bg-[#21222c]/70 p-4 text-xs text-[#6272a4] leading-relaxed space-y-2">
-              <p className="flex items-center gap-2 text-[#f8f8f2] font-semibold text-[13px]">
-                <Mic className="w-4 h-4 text-[#8be9fd]" /> Examiner
-                <span className="text-[#6272a4] font-normal">asks ·</span>
-                <Sparkles className="w-4 h-4 text-[#ff79c6]" /> Lumi
-                <span className="text-[#6272a4] font-normal">answers</span>
-              </p>
-              <p>{PART_DESCRIPTIONS[activePart]}</p>
-            </div>
           </div>
 
-          {/* Right column (8 cols) */}
-          <div className="lg:col-span-8 space-y-4 min-w-0">
-            {/* Part tabs — like the Cambridge Test tab */}
-            <div className="flex flex-wrap items-center gap-2">
-              {([1, 2, 3] as const).map((part) => {
-                const qCount = (selectedTest?.questions || []).filter((q) => q.part === part).length;
-                return (
-                  <button
-                    key={`solutions-part-${part}`}
-                    type="button"
-                    onClick={() => handleSelectPart(part)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all whitespace-nowrap ${
-                      part === activePart
-                        ? 'bg-[#bd93f9]/15 border-[#bd93f9] text-[#bd93f9] shadow-md shadow-[#bd93f9]/10'
-                        : 'bg-[#282a36] border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2] hover:border-[#6272a4]'
-                    }`}
-                    title={`Part ${part} — ${qCount} questions`}
-                  >
-                    <span className="font-mono opacity-80">{part}</span>
-                    <span>Part {part}</span>
-                  </button>
-                );
-              })}
-              <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-[#6272a4]">
-                {PART_TITLES[activePart]}
-              </span>
+          {/* The "What to notice" box, directly under Lumi's speech box */}
+          {partCueTips.length > 0 && (
+            <div className="mt-3 shrink-0 flex items-start gap-2 rounded-xl bg-[#ffb86c]/10 border border-[#ffb86c]/30 p-3">
+              <Lightbulb className="w-4 h-4 text-[#ffb86c] shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[#ffb86c] mb-1">
+                  What to notice in these answers
+                </p>
+                <ul className="text-xs text-[#f8f8f2]/80 list-disc list-inside space-y-0.5">
+                  {partCueTips.map((tip, ti) => (
+                    <li key={`sols-tip-${ti}`}>{tip}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
+          )}
 
-            {/* Scroll area: every topic of this part, with all Q&As at once */}
-            <div className="max-h-[62vh] overflow-y-auto pr-2 space-y-5 rounded-2xl">
+          {/* Spacer to fill remaining height and match the right panel */}
+          <div className="flex-1 min-h-0" />
+        </div>
+
+          {/* Right column (8 cols) — the Q&A session fills the page height */}
+          <div className="lg:col-span-8 flex flex-col min-h-0 min-w-0 lg:max-h-[calc(100dvh-9rem)]">
+            {/* Scroll area: every topic of this part, with all Q&As at once.
+                Height stretches to match the Lumi column on the left so both
+                columns end at the same line and the right column is fully used. */}
+            <ScrollArea className="flex-1 min-h-0 pr-2 pb-4 space-y-5 rounded-2xl">
               {topics.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-[#44475a] p-8 text-center">
                   <BookOpen className="w-8 h-8 mx-auto text-[#6272a4] mb-2" />
@@ -530,22 +548,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
 
                     {/* Every question of the topic with its sample answer below */}
                     <div className="p-4 sm:p-5 space-y-4">
-                      {group.questions[0]?.cueTips && group.questions[0].cueTips.length > 0 && (
-                        <div className="flex items-start gap-2 rounded-xl bg-[#ffb86c]/10 border border-[#ffb86c]/30 p-3">
-                          <Lightbulb className="w-4 h-4 text-[#ffb86c] shrink-0 mt-0.5" />
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-[#ffb86c] mb-1">
-                              What to notice in these answers
-                            </p>
-                            <ul className="text-xs text-[#f8f8f2]/80 list-disc list-inside space-y-0.5">
-                              {group.questions[0].cueTips.map((tip, ti) => (
-                                <li key={`tip-${ti}`}>{tip}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      )}
-
                       {group.questions.map((q, qi) => {
                         const rowActive = isActive && currentQIndex === qi;
                         return (
@@ -627,7 +629,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                 );
               })}
 
-            </div>
+            </ScrollArea>
 
           </div>
         </div>

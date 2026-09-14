@@ -21,6 +21,7 @@ import {
 import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, LumiMood, SavedLessonPlan } from '../types';
 import { lessonPlanFingerprint } from '../utils/lessonHistory';
 import { LumiAvatar } from './LumiAvatar';
+import { ScrollArea } from './ScrollArea';
 import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
 import { useLumiMood, useMicMoodSync, normalizeReplyMood } from '../utils/lumiMood';
 import confetti from 'canvas-confetti';
@@ -79,7 +80,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // transcribed/refined by the AI and the transcript box may update.
   const [isRefiningTranscript, setIsRefiningTranscript] = useState(false);
   const refiningRef = useRef(false);
-  const [drillFeedback, setDrillFeedback] = useState<any>(null);
+  // Real-time drill feedback history: every round (the initial drill check PLUS
+  // any follow-up reply feedback) is kept, newest appended last, and shown in
+  // the scrollable feedback area — original answer + Band 8/8.5 phrasing each.
+  const [feedbackHistory, setFeedbackHistory] = useState<any[]>([]);
   // Central mood state machine (src/utils/lumiMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
   const [lumiMood, setLumiMood] = useLumiMood();
@@ -105,6 +109,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
   const [conversationHistory, setConversationHistory] = useState<any[]>([]);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
+  // Keep the feedback scroll area pinned to the newest round whenever the
+  // initial drill feedback or a follow-up reply feedback is appended.
+  const feedbackScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    feedbackScrollRef.current?.scrollTo({
+      top: feedbackScrollRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [feedbackHistory.length]);
 
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
   const recognizerRef = useRef<any>(null);
@@ -127,7 +140,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // When selected module changes
   useEffect(() => {
     setUserSpokenText('');
-    setDrillFeedback(null);
+    setFeedbackHistory([]);
     setConversationHistory([]);
     setIsRecording(false);
     recognizerRef.current?.stop();
@@ -254,10 +267,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setIsEvaluatingDrill(false);
 
       if (data.success && data.reply) {
-        setDrillFeedback({
-          ...data.reply.feedback,
-          originalAnswer: userSpokenText,
-        });
+        setFeedbackHistory((prev) => [
+          ...prev,
+          { ...data.reply.feedback, originalAnswer: userSpokenText },
+        ]);
         setLumiMood(normalizeReplyMood(data.reply.mood) || 'celebrating');
         sayLumi(data.reply.replyText);
         soundFX.playChime('success');
@@ -287,12 +300,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setIsEvaluatingDrill(false);
       setLumiMood('encouraging');
       sayLumi(`Excellent effort, ${userProfile.nickname}! You used great vocabulary flow.`);
-      setDrillFeedback({
-        originalAnswer: userSpokenText,
-        correctedSentence: userSpokenText,
-        lexicalBoost: ['Remarkable delivery', 'Nuanced perspective', 'Substantiated idea'],
-        ieltsTip: 'Keep your intonation lively to engage the examiner naturally.',
-      });
+      setFeedbackHistory((prev) => [
+        ...prev,
+        {
+          originalAnswer: userSpokenText,
+          correctedSentence: userSpokenText,
+          lexicalBoost: ['Remarkable delivery', 'Nuanced perspective', 'Substantiated idea'],
+          ieltsTip: 'Keep your intonation lively to engage the examiner naturally.',
+        },
+      ]);
       soundFX.playChime('success');
     }
   };
@@ -329,7 +345,13 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         soundFX.playChime('success');
 
         if (data.reply.feedback) {
-           setDrillFeedback(data.reply.feedback);
+          // Append (not replace) so the scroll area reads from the first
+          // drill attempt through every follow-up reply, keeping the original
+          // answer and Band 8/8.5 phrasing visible for every round.
+          setFeedbackHistory((prev) => [
+            ...prev,
+            { ...data.reply.feedback, originalAnswer: userMsg },
+          ]);
         }
 
         setConversationHistory([
@@ -569,7 +591,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 </div>
 
                 {/* Speaking Terminal & Feedback Box */}
-            {!drillFeedback && !isEvaluatingDrill && (
+            {feedbackHistory.length === 0 && !isEvaluatingDrill && (
               <div className="space-y-3 pt-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -687,14 +709,14 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
             {/* Instant Drill Feedback Panel */}
             <AnimatePresence>
-              {drillFeedback && (
+              {feedbackHistory.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="p-5 rounded-3xl bg-[#21222c] border border-[#bd93f9]/40 shadow-xl space-y-4"
+                  className="p-5 rounded-3xl bg-[#21222c] border border-[#bd93f9]/40 shadow-xl"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-4">
                     <span className="text-xs font-bold text-[#bd93f9] uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-[#bd93f9]" />
                       Lumi's Real-Time Drill Feedback
@@ -704,108 +726,137 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     </span>
                   </div>
 
-                  {/* Original Answer */}
-                  {drillFeedback.originalAnswer && (
-                    <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs space-y-1">
-                      <span className="text-[10px] uppercase font-bold text-[#6272a4]">
-                        Your Answer:
-                      </span>
-                      <p className="text-[#f8f8f2]/80 font-medium text-sm italic">
-                        "{drillFeedback.originalAnswer}"
-                      </p>
-                    </div>
-                  )}
+                  {/* Scroll area: every round of feedback, from the initial
+                      drill attempt to the final follow-up, is kept here with
+                      the original answer and Band 8/8.5 phrasing. */}
+                  <ScrollArea
+                    ref={feedbackScrollRef}
+                    className="max-h-[55vh] pr-2 space-y-4"
+                  >
+                    {feedbackHistory.map((fb, idx) => (
+                      <div key={idx} className="space-y-3">
+                        {idx > 0 && (
+                          <div className="flex items-center gap-3 pt-2 border-t border-[#44475a]/60">
+                            <span className="text-[10px] uppercase font-bold text-[#6272a4] tracking-wider">
+                              Follow-up Feedback
+                            </span>
+                          </div>
+                        )}
 
-                  {/* Upgraded version */}
-                  <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-[#8be9fd]">
-                      Polished Band 8.5 Phrasing:
-                    </span>
-                    <p className="text-[#f8f8f2] font-medium text-sm">
-                      "{drillFeedback.correctedSentence}"
-                    </p>
-                  </div>
+                        {/* Original Answer */}
+                        {fb.originalAnswer && (
+                          <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-[#6272a4]">
+                              Your Answer:
+                            </span>
+                            <p className="text-[#f8f8f2]/80 font-medium text-sm italic">
+                              "{fb.originalAnswer}"
+                            </p>
+                          </div>
+                        )}
 
-                  {/* Lexical Boost Chips */}
-                  {drillFeedback.lexicalBoost && (
-                    <div className="space-y-1.5">
-                      <span className="text-[11px] font-semibold text-[#6272a4] uppercase">
-                        Recommended Vocabulary Upgrades:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {drillFeedback.lexicalBoost.map((w: string, i: number) => (
-                          <span
-                            key={i}
-                            className="text-xs px-2.5 py-1 rounded-lg bg-[#44475a] border border-[#bd93f9]/40 text-[#bd93f9] font-medium"
-                          >
-                            + {w}
-                          </span>
-                        ))}
+                        {/* Upgraded version */}
+                        {fb.correctedSentence && (
+                          <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-[#8be9fd]">
+                              Polished Band 8.5 Phrasing:
+                            </span>
+                            <p className="text-[#f8f8f2] font-medium text-sm">
+                              "{fb.correctedSentence}"
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Lexical Boost Chips */}
+                        {fb.lexicalBoost && fb.lexicalBoost.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-semibold text-[#6272a4] uppercase">
+                              Recommended Vocabulary Upgrades:
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {fb.lexicalBoost.map((w: string, i: number) => (
+                                <span
+                                  key={i}
+                                  className="text-xs px-2.5 py-1 rounded-lg bg-[#44475a] border border-[#bd93f9]/40 text-[#bd93f9] font-medium"
+                                >
+                                  + {w}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Examiner Tip */}
+                        {fb.ieltsTip && (
+                          <div className="p-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs text-[#f8f8f2] flex items-start gap-2">
+                            <Lightbulb className="w-4 h-4 text-[#f1fa8c] shrink-0 mt-0.5" />
+                            <div>
+                              <strong className="text-[#f8f8f2]">Examiner Advice: </strong>
+                              {fb.ieltsTip}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    ))}
+                  </ScrollArea>
 
-                  {/* Examiner Tip */}
-                  {drillFeedback.ieltsTip && (
-                    <div className="p-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs text-[#f8f8f2] flex items-start gap-2">
-                      <Lightbulb className="w-4 h-4 text-[#f1fa8c] shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="text-[#f8f8f2]">Examiner Advice: </strong>
-                        {drillFeedback.ieltsTip}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Reply to Lumi Section */}
-                  <div className="pt-4 border-t border-[#44475a] space-y-3">
-                    <span className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
-                      <Mic className="w-3.5 h-3.5 text-[#8be9fd]" />
-                      Reply to Lumi:
-                    </span>
-                    <textarea
-                      value={userSpokenText}
-                      onChange={(e) => handleUserTextChange(e.target.value)}
-                      placeholder="Continue the conversation..."
-                      className="w-full p-3 rounded-xl bg-[#282a36] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm focus:outline-none focus:border-[#bd93f9]"
-                      rows={2}
-                    />
-                    <div className="flex items-center gap-2">
-                      {!isRecording ? (
-                        <button
-                          type="button"
-                          onClick={handleStartRecording}
-                          className="px-4 py-2 rounded-xl bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36] font-bold text-xs flex items-center gap-2"
-                        >
-                          <Mic className="w-4 h-4" />
-                          <span>Record Reply</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleStopRecording}
-                          className="px-4 py-2 rounded-xl bg-[#ff5555] hover:bg-[#ff5555]/90 text-[#f8f8f2] font-bold text-xs flex items-center gap-2 animate-pulse"
-                        >
-                          <MicOff className="w-4 h-4" />
-                          <span>Stop Recording</span>
-                        </button>
-                      )}
-                      
-                      {userSpokenText.trim() && (
-                        <button
-                          type="button"
-                          onClick={handleReplyToLumi}
-                          disabled={isSubmittingReply}
-                          className="px-5 py-2 rounded-xl bg-[#8be9fd] hover:bg-[#8be9fd]/90 disabled:opacity-40 disabled:cursor-not-allowed text-[#282a36] font-bold text-xs flex items-center gap-2 ml-auto"
-                        >
-                          <Send className="w-4 h-4" />
-                          <span>{isSubmittingReply ? 'Sending...' : 'Send'}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
+                  </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Reply to Lumi — placed BELOW the feedback scroll area so it is
+                never clipped. Record Reply is blocked while a send is in flight
+                and Send stays visible but disabled while the input is empty. */}
+            {feedbackHistory.length > 0 && (
+              <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-3">
+                <span className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5 text-[#8be9fd]" />
+                  Reply to Lumi:
+                </span>
+                <textarea
+                  value={userSpokenText}
+                  onChange={(e) => handleUserTextChange(e.target.value)}
+                  placeholder="Continue the conversation..."
+                  className="w-full p-3.5 rounded-xl bg-[#282a36] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm focus:outline-none focus:border-[#bd93f9]"
+                  rows={3}
+                />
+                <div className="flex items-center gap-2">
+                  {!isRecording ? (
+                    <button
+                      type="button"
+                      onClick={handleStartRecording}
+                      disabled={isSubmittingReply}
+                      className="px-4 py-2 rounded-xl bg-[#50fa7b] hover:bg-[#50fa7b]/90 disabled:opacity-40 disabled:cursor-not-allowed text-[#282a36] font-bold text-xs flex items-center gap-2"
+                    >
+                      <Mic className="w-4 h-4" />
+                      <span>Record Reply</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStopRecording}
+                      disabled={isSubmittingReply}
+                      className="px-4 py-2 rounded-xl bg-[#ff5555] hover:bg-[#ff5555]/90 disabled:opacity-40 disabled:cursor-not-allowed text-[#f8f8f2] font-bold text-xs flex items-center gap-2 animate-pulse"
+                    >
+                      <MicOff className="w-4 h-4" />
+                      <span>Stop Recording</span>
+                    </button>
+                  )}
+
+                  {/* Send is always visible; blocked while the input box is
+                      empty or while a previous reply is still sending. */}
+                  <button
+                    type="button"
+                    onClick={handleReplyToLumi}
+                    disabled={!userSpokenText.trim() || isSubmittingReply}
+                    className="px-5 py-2 rounded-xl bg-[#8be9fd] hover:bg-[#8be9fd]/90 disabled:opacity-40 disabled:cursor-not-allowed text-[#282a36] font-bold text-xs flex items-center gap-2 ml-auto"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{isSubmittingReply ? 'Sending...' : 'Send'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
               </div>
             </div>
           </div>
