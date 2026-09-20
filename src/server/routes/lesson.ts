@@ -1,11 +1,11 @@
 import type express from 'express';
 import { callLLM, parseJsonLoose } from '../llm';
 import {
-  buildLumiChatPrompt,
-  LUMI_CASUAL_SYSTEM,
-  LUMI_CHAT_SYSTEM,
-  LUMI_CASUAL_SCHEMA,
-  LUMI_CHAT_SCHEMA,
+  buildSerenChatPrompt,
+  SEREN_CASUAL_SYSTEM,
+  SEREN_CHAT_SYSTEM,
+  SEREN_CASUAL_SCHEMA,
+  SEREN_CHAT_SCHEMA,
   buildLessonChatPrompt,
   LESSON_CHAT_SYSTEM,
   LESSON_CHAT_SCHEMA,
@@ -16,11 +16,11 @@ import {
 import { generateFallbackChatResponse, buildDeterministicLessonSummary } from '../chat';
 
 export function registerLessonRoutes(app: express.Express): void {
-  // Interactive Lumi Chat / IELTS Speaking Session Endpoint
-  app.post('/api/lumi-chat', async (req, res) => {
+  // Interactive Seren Chat / IELTS Speaking Session Endpoint
+  app.post('/api/seren-chat', async (req, res) => {
     try {
       const { userProfile, evaluation, conversationHistory, message, mode, lessonContext, followUpIndex } = req.body;
-      const pinnedProvider = (req.get('x-lumi-provider') || '').toLowerCase() || null;
+      const pinnedProvider = (req.get('x-seren-provider') || '').toLowerCase() || null;
 
       const isCasualMode = mode === 'Casual Chat';
       // Lesson Practice mode runs the bounded, error-focused session protocol
@@ -75,7 +75,7 @@ export function registerLessonRoutes(app: express.Express): void {
         return res.json({ success: true, reply: parsed, provider, model });
       }
 
-      const prompt = buildLumiChatPrompt({
+      const prompt = buildSerenChatPrompt({
         isCasual: isCasualMode,
         userProfile,
         evaluation,
@@ -83,10 +83,10 @@ export function registerLessonRoutes(app: express.Express): void {
         message,
         mode,
       });
-      const schemaHint = isCasualMode ? LUMI_CASUAL_SCHEMA : LUMI_CHAT_SCHEMA;
+      const schemaHint = isCasualMode ? SEREN_CASUAL_SCHEMA : SEREN_CHAT_SCHEMA;
 
       const { text, provider, model } = await callLLM({
-        systemInstruction: isCasualMode ? LUMI_CASUAL_SYSTEM : LUMI_CHAT_SYSTEM,
+        systemInstruction: isCasualMode ? SEREN_CASUAL_SYSTEM : SEREN_CHAT_SYSTEM,
         userPrompt: prompt,
         json: true,
         jsonSchemaHint: schemaHint,
@@ -100,7 +100,7 @@ export function registerLessonRoutes(app: express.Express): void {
       }
       return res.json({ success: true, reply: parsed, provider, model });
     } catch (err: any) {
-      console.warn('Notice in Lumi chat endpoint fallback:', err?.message || err);
+      console.warn('Notice in Seren chat endpoint fallback:', err?.message || err);
       const fallbackReply = generateFallbackChatResponse(req.body?.userProfile, req.body?.message, req.body?.mode);
       return res.json({ success: true, reply: fallbackReply, error: err.message });
     }
@@ -110,7 +110,7 @@ export function registerLessonRoutes(app: express.Express): void {
   app.post('/api/generate-lesson-drill', async (req, res) => {
     try {
       const { userProfile, lessonModule } = req.body || {};
-      const pinnedProvider = (req.get('x-lumi-provider') || '').toLowerCase() || null;
+      const pinnedProvider = (req.get('x-seren-provider') || '').toLowerCase() || null;
 
       const prompt = buildLessonDrillPrompt({
         nickname: userProfile?.nickname || 'Learner',

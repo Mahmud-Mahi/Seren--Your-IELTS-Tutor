@@ -1,7 +1,7 @@
-// Lumi service worker — makes the app installable as a standalone desktop app.
+// Seren service worker — makes the app installable as a standalone desktop app.
 // Network-first everywhere so dev (Vite) and fresh builds always win; the
 // cache only acts as an offline shell. API traffic is never intercepted.
-const CACHE = 'lumi-shell-v2';
+const CACHE = 'seren-shell-v2';
 const PRECACHE = ['/', '/manifest.json', '/favicon.png', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

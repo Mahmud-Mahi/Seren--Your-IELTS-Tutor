@@ -7,10 +7,10 @@ import { LessonRoadmapModule, SavedLessonPlan, SpeakingEvaluation } from '../typ
  * store keeps the roadmap of EVERY session (newest first) so retaking a test
  * never deletes older lessons, and persists per-lesson tick marks (completed)
  * so a finished lesson stays ticked across reloads. Stored in localStorage
- * under `lumi_lesson_history`.
+ * under `seren_lesson_history`.
  */
 
-const STORAGE_KEY = 'lumi_lesson_history';
+const STORAGE_KEY = 'seren_lesson_history';
 const MAX_PLANS = 50; // bounded like the Score Report history
 
 /**

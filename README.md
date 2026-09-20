@@ -1,8 +1,8 @@
 <div align="center">
 
-![Lumi](public/icons/icon-192.png)
+![Seren](public/icons/icon-192.png)
 
-# Lumi — Your IELTS Tutor
+# Seren — Your IELTS Tutor
 
 **Your personal AI IELTS speaking coach** — practice speaking, get instant CEFR evaluation, and improve with personalized lesson plans.
 
@@ -59,7 +59,7 @@ Two practice modes:
 ### 🔊 Real-Time Voice
 - **Speech-to-Text**: Local offline Whisper (sherpa-onnx) + browser Web Speech API
 - **Text-to-Speech**: Microsoft Edge Neural TTS with browser fallback
-- Lumi speaks questions aloud and listens to your answers
+- Seren speaks questions aloud and listens to your answers
 
 ### 📱 Progressive Web App
 - Installable on desktop & mobile
@@ -72,27 +72,27 @@ Two practice modes:
 
 | Part 1 — Introduction & Lifestyle | Part 2 — Cue Card |
 | --- | --- |
-| ![Part 1](public/Preview/lumi-p1.png) | ![Part 2](public/Preview/lumi-p2.png) |
+| ![Part 1](public/Preview/seren-p1.png) | ![Part 2](public/Preview/seren-p2.png) |
 
 | Part 3 — Two-Way Discussion | Test Selection |
 | --- | --- |
-| ![Part 3](public/Preview/lumi-p3.png) | ![Test selection](public/Preview/lumi-test.png) |
+| ![Part 3](public/Preview/seren-p3.png) | ![Test selection](public/Preview/seren-test.png) |
 
 ### 📊 Score Report
 
 | Overall Evaluation | 4-Pillar Score Cards |
 | --- | --- |
-| ![Score report](public/Preview/lumi-report.png) | ![4-Pillar scores](public/Preview/lumi-report-2.png) |
+| ![Score report](public/Preview/seren-report.png) | ![4-Pillar scores](public/Preview/seren-report-2.png) |
 
 | Band 8+ Sentence Upgrades | Phonetic Coaching |
 | --- | --- |
-| ![Sentence upgrades](public/Preview/lumi-report-3.png) | ![Phonetic coaching](public/Preview/lumi-report-4.png) |
+| ![Sentence upgrades](public/Preview/seren-report-3.png) | ![Phonetic coaching](public/Preview/seren-report-4.png) |
 
 ### 📚 Lessons, Chat & Settings
 
 | Personalized Lesson Studio | 1v1 Chat (Interview Mode) |
 | --- | --- |
-| ![Custom lessons](public/Preview/lumi-custom-lessons.png) | ![1v1 interview](public/Preview/lumi-1v1-interview.png) |
+| ![Custom lessons](public/Preview/seren-custom-lessons.png) | ![1v1 interview](public/Preview/seren-1v1-interview.png) |
 
 | AI Engine Settings |
 | --- |
@@ -109,15 +109,15 @@ Two practice modes:
 ### Installation
 
 ```bash
-git clone https://github.com/Mahmud-Mahi/Lumi--Your-IELTS-Tutor.git
-cd Lumi--Your-IELTS-Tutor
+git clone https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor.git
+cd Seren--Your-IELTS-Tutor
 npm install
 cp .env.example .env
 ```
 
 ### Configure LLM Provider
 
-Edit `.env` with your preferred provider. Lumi uses a **cascading fallback** system:
+Edit `.env` with your preferred provider. Seren uses a **cascading fallback** system:
 
 ```env
 # Option 1: Local LLM (LM Studio, llama.cpp, LiteLLM, vLLM)
@@ -156,7 +156,7 @@ npm start
 
 The app will be available at **http://localhost:3000** (or the `PORT` you configured).
 
-> 💡 **Completely free & better performance — no API key needed!** Use my other repo [token-free-gateway](https://github.com/Mahmud-Mahi/token-free-gateway) — a lightweight AI gateway that exposes an OpenAI-compatible interface with full Tools support, using web AI sessions instead of API tokens. Point Lumi's `LLM_BASE_URL` at it and enjoy free, unlimited LLM access:
+> 💡 **Completely free & better performance — no API key needed!** Use my other repo [token-free-gateway](https://github.com/Mahmud-Mahi/token-free-gateway) — a lightweight AI gateway that exposes an OpenAI-compatible interface with full Tools support, using web AI sessions instead of API tokens. Point Seren's `LLM_BASE_URL` at it and enjoy free, unlimited LLM access:
 
 ```env
 LLM_BASE_URL=http://localhost:3456/v1
@@ -229,8 +229,8 @@ LLM_API_KEY=none
 │   │   ├── DiagnosticTest.tsx    # Cambridge IELTS test flow
 │   │   ├── EvaluationReport.tsx  # Score report with tabs
 │   │   ├── LessonStudio.tsx      # Personalized lesson modules
-│   │   ├── LumiLiveChat.tsx      # 1v1 chat & interview mode
-│   │   ├── LumiAvatar.tsx        # Animated character avatar
+│   │   ├── SerenLiveChat.tsx      # 1v1 chat & interview mode
+│   │   ├── SerenAvatar.tsx        # Animated character avatar
 │   │   ├── SettingsModal.tsx     # Provider & voice config
 │   │   └── ...
 │   ├── utils/
@@ -282,7 +282,7 @@ Questions, feedback, or just want to say hi? Reach out!
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Mahmud-Mahi/Lumi--Your-IELTS-Tutor/blob/master/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/blob/master/LICENSE)
 
 > The MIT License text is available on GitHub: [choosealicense.com/licenses/mit](https://choosealicense.com/licenses/mit/) · [GitHub's MIT license template](https://github.com/licenses/license-mit)
 

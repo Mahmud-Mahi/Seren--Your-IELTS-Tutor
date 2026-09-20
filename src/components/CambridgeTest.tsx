@@ -18,8 +18,8 @@ import {
 } from 'lucide-react';
 import { DiagnosticQuestion, UserProfile, SpeakingEvaluation } from '../types';
 import { CAMBRIDGE_TESTS, getCambridgeTestById } from '../data/cambridgeTests';
-import { LumiAvatar } from './LumiAvatar';
-import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
+import { SerenAvatar } from './SerenAvatar';
+import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
 import confetti from 'canvas-confetti';
 import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing } from '../utils/greetings';
 
@@ -51,7 +51,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const [selectedTestId, setSelectedTestId] = useState<string>('');
   const [currentIdx, setCurrentIdx] = useState<number>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('lumi_cambridge_progress') || '{}');
+      const saved = JSON.parse(localStorage.getItem('seren_cambridge_progress') || '{}');
       const idx = Number(saved.idx);
       if (Number.isInteger(idx) && idx >= 0) return idx;
     } catch {}
@@ -64,13 +64,13 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const [timeLeft, setTimeLeft] = useState(0);
   const [prepTimeLeft, setPrepTimeLeft] = useState(0);
   // Part 2 prep-clock gate: while true, the 1-minute prep countdown is HELD.
-  // Lumi reads the Part 2 cue card aloud when the question appears, and the
+  // Seren reads the Part 2 cue card aloud when the question appears, and the
   // prep clock must only start ticking once she STOPS speaking — otherwise
   // the minute burns down while the student is still listening to the intro.
   const [prepGate, setPrepGate] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, string>>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('lumi_diag_progress') || '{}');
+      const saved = JSON.parse(localStorage.getItem('seren_diag_progress') || '{}');
       return {
         'diag-part-1': saved.transcripts?.['diag-part-1'] || '',
         'diag-part-2': saved.transcripts?.['diag-part-2'] || '',
@@ -102,7 +102,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   useEffect(() => {
     try {
       localStorage.setItem(
-        'lumi_cambridge_progress',
+        'seren_cambridge_progress',
         JSON.stringify({ selectedTestId, idx: currentIdx, transcripts })
       );
     } catch {}
@@ -123,7 +123,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   // Pending post-expiry finalize that a manual stop must cancel
   const expireTimerRef = useRef<any>(null);
   const waitingRef = useRef(false);
-  // Whether Lumi's spoken question intro actually began (set from LumiAvatar's onStart)
+  // Whether Seren's spoken question intro actually began (set from SerenAvatar's onStart)
   const introSpeechStartedRef = useRef(false);
   // Safety-net timers that guarantee the prep gate can never freeze the clock
   const prepGateFallbackRef = useRef<any>(null);
@@ -134,8 +134,8 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   transcriptsRef.current = transcripts;
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
 
-  // Compute clean, expressive speech prompt for Lumi (spoken once upon entering each question).
-  // IMPORTANT: Lumi actually reads the question aloud so text and voice always match.
+  // Compute clean, expressive speech prompt for Seren (spoken once upon entering each question).
+  // IMPORTANT: Seren actually reads the question aloud so text and voice always match.
   // The opener/closing rotate through natural examiner lines (see greetings.ts)
   // keyed to the question's position within its part, so she never repeats the
   // same framing line on every question of Part 1 / Part 3.
@@ -159,8 +159,8 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
 
   // Spoken audio prompt (stable text, does not change every second)
   // ONE canonical greeting string, used for both the on-screen subtitle and
-  // the MANUAL replay button. Lumi never speaks automatically in this tab —
-  // her voice only plays when the user presses ▶ (see LumiAvatar replay).
+  // the MANUAL replay button. Seren never speaks automatically in this tab —
+  // her voice only plays when the user presses ▶ (see SerenAvatar replay).
   const greetingText = cambridgeGreeting(userProfile.nickname);
 
   const spokenAudioPrompt = !selectedTest
@@ -172,7 +172,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     : getQuestionSpeech(currentIdx, currentQ || DIAGNOSTIC_FALLBACK_QUESTION, userProfile.nickname);
 
   // Dynamic visual subtitle banner (updates with live timer without re-triggering audio)
-  const lumiSubtitle = !selectedTest
+  const serenSubtitle = !selectedTest
     ? greetingText
     : isAnalyzing
     ? analyzingStage || 'Analyzing your spoken grammar, vocabulary, and CEFR level...'
@@ -303,7 +303,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
 
   // Handle question transition and audio initialization.
   // useLayoutEffect is REQUIRED: it completes before children's passive
-  // effects, so the previous part's audio is cut BEFORE LumiAvatar starts
+  // effects, so the previous part's audio is cut BEFORE SerenAvatar starts
   // the new utterance — otherwise the child speaks first and this stop
   // immediately marks that fresh speech stale (Part 1 voice never plays).
   useLayoutEffect(() => {
@@ -329,12 +329,12 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     recognizerRef.current?.stop();
     // Cut off any speech from the previous part immediately so it never
     // overlaps with (or races the TTS fetch for) the next part's voice
-    lumiVoice.stop();
+    serenVoice.stop();
 
     if (currentQ.part === 2) {
       setTimeLeft(currentQ.speakTimeSeconds);
       if (voiceEnabled) {
-        // Lumi reads the cue card aloud first: HOLD the 1-minute prep
+        // Seren reads the cue card aloud first: HOLD the 1-minute prep
         // countdown until she finishes speaking (onSpeechEnd releases the
         // gate), so the clock never runs while the student is still listening.
         waitingRef.current = true;
@@ -342,7 +342,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
         setIsPrepPhase(true);
         setPrepTimeLeft(currentQ.prepTimeSeconds);
         setPrepGate(true);
-        // Safety net: if Lumi's voice never actually starts (TTS blocked,
+        // Safety net: if Seren's voice never actually starts (TTS blocked,
         // muted, or synthesis failure without callbacks), release the hold so
         // the prep clock still runs instead of sitting frozen at the full minute.
         if (prepGateFallbackRef.current) clearTimeout(prepGateFallbackRef.current);
@@ -383,12 +383,12 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     setHintText('');
   }, [selectedTestId, currentIdx, questions.length]);
 
-  // Called by LumiAvatar when the spoken question intro actually begins.
+  // Called by SerenAvatar when the spoken question intro actually begins.
   const handleIntroSpeechStart = () => {
     introSpeechStartedRef.current = true;
   };
 
-  // Called by LumiAvatar when a question intro finishes speaking. For Part 2
+  // Called by SerenAvatar when a question intro finishes speaking. For Part 2
   // this is the exact moment the 1-minute prep countdown is allowed to start.
   const handleIntroSpeechEnd = () => {
     waitingRef.current = false;
@@ -396,7 +396,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   };
 
   // Preparation timer for Part 2 — the countdown only runs once the prepGate
-  // hold is released, i.e. when Lumi stops speaking the cue card intro.
+  // hold is released, i.e. when Seren stops speaking the cue card intro.
   useEffect(() => {
     let prepTimer: any = null;
 
@@ -411,7 +411,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
           const currentId = currentQ.id;
           recordingTransitionRef.current = { id: currentId, started: false };
 
-          lumiVoice.speak('Your preparation time is over. Please start speaking now.', {
+          serenVoice.speak('Your preparation time is over. Please start speaking now.', {
             onEnd: () => {
               if (recordingTransitionRef.current.id === currentId && !recordingTransitionRef.current.started) {
                 startRecording();
@@ -506,7 +506,7 @@ useEffect(() => {
     setTimeLeft(currentQ.speakTimeSeconds);
     // New attempt => this part's transcript should be refined again afterwards
     refinedPartsRef.current.delete(currentQ.id);
-    lumiVoice.stop();
+    serenVoice.stop();
     soundFX.playChime('start');
 
     // Start native high-fidelity audio recorder for Whisper STT
@@ -637,13 +637,13 @@ useEffect(() => {
     releasePrepGate();
     isRecordingRef.current = false;
     finalizeInFlightRef.current = false;
-    lumiVoice.stop();
+    serenVoice.stop();
     recognizerRef.current?.stop();
     void activeAudioRecorder.stop().catch(() => {});
     refinedPartsRef.current.clear();
     try {
-      localStorage.removeItem('lumi_cambridge_progress');
-      localStorage.removeItem('lumi_diag_progress');
+      localStorage.removeItem('seren_cambridge_progress');
+      localStorage.removeItem('seren_diag_progress');
     } catch {}
     setTranscripts({});
     setCurrentIdx(0);
@@ -764,7 +764,7 @@ useEffect(() => {
         } catch (e) {}
         // Test finished — clear the resume checkpoint
         try {
-          localStorage.removeItem('lumi_diag_progress');
+          localStorage.removeItem('seren_diag_progress');
         } catch {}
         // Stamp the Cambridge test metadata so the Score Report + history always
         // know exactly which test this evaluation belongs to.
@@ -884,7 +884,7 @@ useEffect(() => {
         ],
       };
       try {
-        localStorage.removeItem('lumi_diag_progress');
+        localStorage.removeItem('seren_diag_progress');
       } catch {}
       onEvaluationComplete({
         ...(fallback as any),
@@ -976,11 +976,11 @@ useEffect(() => {
         </motion.div>
       )}
 
-      {/* Main Grid: Lumi Stage + Test Controls */}
+      {/* Main Grid: Seren Stage + Test Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
-        {/* Lumi Character Display (4 cols) */}
+        {/* Seren Character Display (4 cols) */}
         <div className="lg:col-span-4 space-y-4">
-          <LumiAvatar
+          <SerenAvatar
             mood={
               !selectedTest
                 ? 'greeting'
@@ -995,7 +995,7 @@ useEffect(() => {
                   (currentQ.part === 2 ? 'greeting' : 'encouraging')
                 : 'encouraging'
             }
-            currentSpeech={lumiSubtitle}
+            currentSpeech={serenSubtitle}
             spokenAudioText={spokenAudioPrompt}
             isUserSpeaking={isRecording}
             voiceEnabled={voiceEnabled}
@@ -1280,7 +1280,7 @@ useEffect(() => {
             <div className="p-4 sm:p-5 rounded-3xl bg-[#282a36] border border-[#44475a] text-xs text-[#f8f8f2]/90 space-y-2 shadow-lg backdrop-blur-md">
               <div className="flex items-center gap-2 font-semibold text-[#8be9fd]">
                 <Lightbulb className="w-4 h-4 text-[#f1fa8c]" />
-                <span className="text-xs uppercase tracking-wider">Lumi's IELTS Examiner Advice & Tips</span>
+                <span className="text-xs uppercase tracking-wider">Seren's IELTS Examiner Advice & Tips</span>
               </div>
               <ul className="space-y-1.5 pl-5 list-disc text-[#f8f8f2]/80 text-xs leading-relaxed">
                 {currentQ.cueTips.map((tip, i) => (

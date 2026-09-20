@@ -14,19 +14,20 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { ChatMessage, UserProfile, SpeakingEvaluation, LumiMood, UpgradedExpression } from '../types';
+import { ChatMessage, UserProfile, SpeakingEvaluation, SerenMood, UpgradedExpression } from '../types';
 import { ChatInputBox } from './ChatInputBox';
-import { LumiAvatar } from './LumiAvatar';
+import { SerenAvatar } from './SerenAvatar';
 import { ScrollArea } from './ScrollArea';
-import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI } from '../utils/speech';
+import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI } from '../utils/speech';
 import { getAutoMicEnabled } from '../utils/preferences';
-import { useLumiMood, useMicMoodSync, normalizeReplyMood } from '../utils/lumiMood';
+import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
 import { pickRandomTopic, getQuestionsByTopic, type IELTSPart1Question } from '../data/ieltsQuestionsP1';
-import { LUMI_PROFILE_IMAGE, USER_AVATAR_IMAGE } from '../assets/characterAssets';
+import { SEREN_PROFILE_IMAGE, USER_AVATAR_IMAGE } from '../assets/characterAssets';
 import { loadMessagesByMode, saveMessagesByMode, loadInterviewSession, saveInterviewSession } from '../utils/chatHistory';
 import { greetInterview, casualSessionOpener, casualFallbackOpener } from '../utils/greetings';
+import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 
-interface LumiLiveChatProps {
+interface SerenLiveChatProps {
   userProfile: UserProfile;
   evaluation?: SpeakingEvaluation | null;
   voiceEnabled: boolean;
@@ -34,7 +35,7 @@ interface LumiLiveChatProps {
   onPracticeEvaluationComplete?: (evaluation: SpeakingEvaluation) => void;
 }
 
-// Absolute ceiling for waiting on Lumi's speech before forcing the handoff —
+// Absolute ceiling for waiting on Seren's speech before forcing the handoff —
 // guards against a stalled TTS stream that never fires onEnd (90s).
 const SPEECH_HANDOFF_CAP_MS = 90_000;
 
@@ -42,7 +43,7 @@ const SPEECH_HANDOFF_CAP_MS = 90_000;
 // directly in the 1v1 Interview right after onboarding, and the last-used mode
 // is remembered so returning users never lose their place when they come back
 // to the chat tab.
-const CHAT_MODE_KEY = 'lumi_chat_mode';
+const CHAT_MODE_KEY = 'seren_chat_mode';
 
 function loadSavedChatMode(): 'Interview' | 'Casual Chat' {
   try {
@@ -54,7 +55,7 @@ function loadSavedChatMode(): 'Interview' | 'Casual Chat' {
   return 'Interview';
 }
 
-export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
+export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   userProfile,
   evaluation,
   voiceEnabled,
@@ -64,14 +65,14 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   const [inputText, setInputText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  // Central mood state machine (src/utils/lumiMood.ts) — 'listening' is
+  // Central mood state machine (src/utils/serenMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
-  const [lumiMood, setLumiMood] = useLumiMood();
+  const [serenMood, setSerenMood] = useSerenMood();
   const [currentSpeech, setCurrentSpeech] = useState('');
-  // Tracks whether Lumi is currently speaking (casual + interview audio), so the
+  // Tracks whether Seren is currently speaking (casual + interview audio), so the
   // chat avatar shows the "speaking" image while she talks and falls back to the
   // greeting image when idle.
-  const [lumiTalking, setLumiTalking] = useState(false);
+  const [serenTalking, setSerenTalking] = useState(false);
   const [selectedTopicMode, setSelectedTopicMode] = useState<'Interview' | 'Casual Chat'>(loadSavedChatMode);
 
   // Inline message editing (WhatsApp-style). `editingMessageId` tracks which
@@ -104,14 +105,14 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
 
   // Interview mode state
   const [usedTopics, setUsedTopics] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('lumi_used_topics') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('seren_used_topics') || '[]'); } catch { return []; }
   });
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
   const [topicQuestions, setTopicQuestions] = useState<IELTSPart1Question[]>([]);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [isInterviewActive, setIsInterviewActive] = useState(false);
-  const [isLumiSpeakingQ, setIsLumiSpeakingQ] = useState(false);
+  const [isSerenSpeakingQ, setIsSerenSpeakingQ] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [greetingDone, setGreetingDone] = useState(false);
 
@@ -134,7 +135,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
 
   // ---- Single continuous chat thread ----
   // First-ever visit (post-onboarding): land straight in the 1v1 INTERVIEW —
-  // Lumi greets and immediately starts a Part 1 topic from the question bank
+  // Seren greets and immediately starts a Part 1 topic from the question bank
   // (3-6 questions from one topic, then evaluation). Returning visits: the
   // full history is already in the scroll area and the user simply continues
   // (an in-progress interview rehydrates its topic/question/answer state).
@@ -157,7 +158,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
         lastAnsweredIdxRef.current = session.lastAnsweredIdx;
         finalizingInterviewRef.current = false;
         setIsInterviewActive(!finished);
-        setIsLumiSpeakingQ(false);
+        setIsSerenSpeakingQ(false);
         setGreetingDone(true);
         setIsEvaluating(false);
       } else {
@@ -166,7 +167,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
         void startInterview();
       }
     } else if (messages.length === 0) {
-      // Casual thread empty — Lumi opens the friendly conversation.
+      // Casual thread empty — Seren opens the friendly conversation.
       setGreetingDone(true);
       void handleStartCasualSession();
     }
@@ -204,7 +205,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
 
   // Persist used topics
   useEffect(() => {
-    try { localStorage.setItem('lumi_used_topics', JSON.stringify(usedTopics)); } catch {}
+    try { localStorage.setItem('seren_used_topics', JSON.stringify(usedTopics)); } catch {}
   }, [usedTopics]);
 
   // Persist the interview session state machine (topic, question list, current
@@ -251,7 +252,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       recognizerRef.current?.stop();
       interviewRecognizerRef.current?.stop();
       interviewRecognizerRef.current = null;
-      lumiVoice.stop();
+      serenVoice.stop();
       void activeAudioRecorder.stop().catch(() => {});
     };
   }, []);
@@ -339,13 +340,13 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     // navigating Casual ⇌ Interview), restore it so the mic always works.
     if (!isInterviewActiveRef.current) {
       setIsInterviewActive(true);
-      setIsLumiSpeakingQ(false);
+      setIsSerenSpeakingQ(false);
       setGreetingDone(true);
     }
 
-    // If Lumi is still reading the question aloud, cut her off so the user's
+    // If Seren is still reading the question aloud, cut her off so the user's
     // answer doesn't overlap the question audio.
-    lumiVoice.stop();
+    serenVoice.stop();
 
     soundFX.playChime('start');
     // Mood: 'listening' comes automatically from useMicMoodSync when
@@ -493,16 +494,16 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     if (!isInterviewActiveRef.current && topicQuestions.length === 0) return;
     if (!greetingDone) return;
     if (finalizingInterviewRef.current) return;
-    // The user can answer even while Lumi is still reading the question —
+    // The user can answer even while Seren is still reading the question —
     // cut her speech off and submit their answer.
-    if (isLumiSpeakingQ) {
-      lumiVoice.stop();
-      setIsLumiSpeakingQ(false);
+    if (isSerenSpeakingQ) {
+      serenVoice.stop();
+      setIsSerenSpeakingQ(false);
     }
     void finalizeInterviewAnswer(answerText);
-  }, [answerText, isLumiSpeakingQ, greetingDone, topicQuestions.length]);
+  }, [answerText, isSerenSpeakingQ, greetingDone, topicQuestions.length]);
 
-  // Speech-aware handoff: wait until Lumi has ACTUALLY finished speaking before
+  // Speech-aware handoff: wait until Seren has ACTUALLY finished speaking before
   // advancing to the next stage (first question / mic handover). The previous
   // blind 9-second timers fired while she was still mid-sentence on longer
   // greetings/questions, and the follow-up speak() call instantly cancelled
@@ -515,7 +516,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     let sawSpeaking = false;
     const poll = window.setInterval(() => {
       const elapsed = Date.now() - startedAt;
-      const speaking = lumiVoice.getIsSpeaking();
+      const speaking = serenVoice.getIsSpeaking();
       if (speaking) sawSpeaking = true;
       // Still inside the pre-speech grace window and nothing has played yet —
       // keep waiting for the engine to start (the first /api/tts request can
@@ -532,10 +533,10 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     if (idx >= topicQuestions.length) {
       // All questions done
       setIsInterviewActive(false);
-      setLumiMood('encouraging');
+      setSerenMood('encouraging');
       const doneMsg: ChatMessage = {
         id: `msg-done-${Date.now()}`,
-        sender: 'lumi',
+        sender: 'seren',
         text: `Great job, ${userProfile.nickname}! That was the last question. Let's see how you did!`,
         timestamp: Date.now(),
         mood: 'encouraging',
@@ -543,9 +544,9 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       setMessagesForActiveMode((prev) => [...prev, doneMsg]);
       setCurrentSpeech(doneMsg.text);
       if (voiceEnabled) {
-        lumiVoice.speak(doneMsg.text, {});
+        serenVoice.speak(doneMsg.text, {});
       }
-      setLumiMood('encouraging');
+      setSerenMood('encouraging');
       return;
     }
 
@@ -556,16 +557,16 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
 
     setCurrentQuestionIdx(idx);
     const q = topicQuestions[idx];
-    setLumiMood('speaking');
-    setIsLumiSpeakingQ(true);
+    setSerenMood('speaking');
+    setIsSerenSpeakingQ(true);
 
-    // Lumi asks the question as a chat bubble (messaging UI) and reads it aloud
+    // Seren asks the question as a chat bubble (messaging UI) and reads it aloud
     setCurrentSpeech(q.instruction);
     setMessagesForActiveMode((prev) => [
       ...prev,
       {
         id: `msg-q-${idx}-${Date.now()}`,
-        sender: 'lumi',
+        sender: 'seren',
         text: q.instruction,
         timestamp: Date.now(),
         mood: 'speaking',
@@ -580,18 +581,18 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       // start recording / double-fire.
       if (advanced) return;
       advanced = true;
-      setIsLumiSpeakingQ(false);
+      setIsSerenSpeakingQ(false);
       setCurrentSpeech('');
-      setLumiMood('speaking');
+      setSerenMood('speaking');
       // Respect the mic preference: automatic opens the mic by itself after
-      // Lumi reads the question; manual waits for the user to press the mic.
+      // Seren reads the question; manual waits for the user to press the mic.
       if (getAutoMicEnabled()) {
         startInterviewRecording();
       }
     };
 
     if (voiceEnabled && q.instruction.trim()) {
-      lumiVoice.speak(q.instruction, { onEnd: beginAnswering });
+      serenVoice.speak(q.instruction, { onEnd: beginAnswering });
       // Safety net: if onEnd never fires (autoplay block / same-phrase short-
       // circuit), still hand the turn to the user so the mic is never stuck
       // disabled — but ONLY once she has genuinely finished (or failed to
@@ -628,17 +629,17 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     // onEnd and the safety-net timer both trigger.
     let begun = false;
 
-    // Lumi greets as a chat bubble (messaging UI) and reads it aloud.
+    // Seren greets as a chat bubble (messaging UI) and reads it aloud.
     // Single-thread rule: the greeting is APPENDED to the continuous history,
     // never replacing what came before.
     const greetText = greetInterview(userProfile.nickname);
-    setLumiMood('greeting');
+    setSerenMood('greeting');
     setCurrentSpeech(greetText);
     setMessagesForActiveMode((prev) => [
       ...prev,
       {
         id: `msg-greet-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        sender: 'lumi',
+        sender: 'seren',
         text: greetText,
         timestamp: Date.now(),
         mood: 'greeting',
@@ -652,14 +653,14 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       begun = true;
       setGreetingDone(true);
       setCurrentSpeech('');
-      setLumiMood('speaking');
+      setSerenMood('speaking');
       setTimeout(() => {
         askQuestionRef.current(0);
       }, 800);
     };
 
     if (voiceEnabled && greetText.trim()) {
-      lumiVoice.speak(greetText, {
+      serenVoice.speak(greetText, {
         onEnd: beginQuestions,
       });
       // Safety net: if the speech engine never fires onEnd (autoplay block /
@@ -744,7 +745,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       setIsEvaluating(false);
       const errorMsg: ChatMessage = {
         id: `msg-err-${Date.now()}`,
-        sender: 'lumi',
+        sender: 'seren',
         text: `Sorry, something went wrong with the evaluation. Please try again.`,
         timestamp: Date.now(),
         mood: 'speaking',
@@ -754,15 +755,15 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   }, [onPracticeEvaluationComplete, currentTopic, topicQuestions, userAnswers, userProfile]);
 
   // ---- CASUAL CHAT MODE ----
-  // The avatar renders with autoSpeak={false} (LumiLiveChat owns all audio to
+  // The avatar renders with autoSpeak={false} (SerenLiveChat owns all audio to
   // avoid double-speak races), so casual replies are voiced explicitly here.
   const speakText = useCallback(
     (text: string) => {
       if (voiceEnabled && text && text.trim()) {
-        setLumiTalking(true);
-        lumiVoice.speak(text, {
-          onStart: () => setLumiTalking(true),
-          onEnd: () => setLumiTalking(false),
+        setSerenTalking(true);
+        serenVoice.speak(text, {
+          onStart: () => setSerenTalking(true),
+          onEnd: () => setSerenTalking(false),
         });
       }
     },
@@ -801,11 +802,11 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
     setInputText('');
     setIsLoading(true);
     // Never fake 'listening' here — that mood means the mic is recording.
-    // The chat area already shows "Lumi is typing..." while we wait.
-    setLumiMood('speaking');
+    // The chat area already shows "Seren is typing..." while we wait.
+    setSerenMood('speaking');
 
     try {
-      const res = await fetch('/api/lumi-chat', {
+      const res = await fetch('/api/seren-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -821,27 +822,27 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       setIsLoading(false);
 
       if (data.success && data.reply) {
-        const lumiMsg: ChatMessage = {
-          id: `msg-lumi-${Date.now()}`,
-          sender: 'lumi',
+        const serenMsg: ChatMessage = {
+          id: `msg-seren-${Date.now()}`,
+          sender: 'seren',
           text: data.reply.replyText,
           timestamp: Date.now(),
           mood: normalizeReplyMood(data.reply.mood),
           feedback: data.reply.feedback,
         };
 
-        setMessagesForActiveMode((prev) => [...prev, lumiMsg]);
-        setLumiMood(lumiMsg.mood || 'speaking');
-        setCurrentSpeech(lumiMsg.text);
-        speakText(lumiMsg.text);
+        setMessagesForActiveMode((prev) => [...prev, serenMsg]);
+        setSerenMood(serenMsg.mood || 'speaking');
+        setCurrentSpeech(serenMsg.text);
+        speakText(serenMsg.text);
         soundFX.playChime('ding');
       }
     } catch (e) {
       setIsLoading(false);
       const isCasual = selectedTopicMode !== 'Interview';
       const fallbackMsg: ChatMessage = {
-        id: `msg-lumi-${Date.now()}`,
-        sender: 'lumi',
+        id: `msg-seren-${Date.now()}`,
+        sender: 'seren',
         text: isCasual
           ? `Ah, I didn't catch that, ${userProfile.nickname} — my connection hiccuped. What were you saying?`
           : `That is an insightful point, ${userProfile.nickname}! Could you elaborate on what factors might influence this in the near future?`,
@@ -856,7 +857,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
             },
       };
       setMessagesForActiveMode((prev) => [...prev, fallbackMsg]);
-      setLumiMood('speaking');
+      setSerenMood('speaking');
       setCurrentSpeech(fallbackMsg.text);
       speakText(fallbackMsg.text);
       soundFX.playChime('ding');
@@ -877,7 +878,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       setMessagesForActiveMode((prev) =>
         prev.map((m) => (m.id === msgId ? { ...m, text, edited: true } : m))
       );
-      // Keep a freshly-edited Lumi bubble in sync with the spoken subtext.
+      // Keep a freshly-edited Seren bubble in sync with the spoken subtext.
       setCurrentSpeech('');
       setEditingMessageId(null);
       setEditingText('');
@@ -927,13 +928,13 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       }
     } else {
       soundFX.playChime('start');
-      // Cut off Lumi's still-streaming speech BEFORE arming the mic. If her
+      // Cut off Seren's still-streaming speech BEFORE arming the mic. If her
       // TTS is playing when the MediaRecorder opens, her voice gets recorded
       // from the speakers and Whisper then "refines" the answer into HER
       // words — a completely out-of-context transcript. Every other recording
       // flow (Cambridge test, custom lessons, interview mode below) stops
-      // Lumi first; this casual-chat path was the only one that didn't.
-      lumiVoice.stop();
+      // Seren first; this casual-chat path was the only one that didn't.
+      serenVoice.stop();
       // A new recording invalidates any pending Whisper suggestion.
       setGhostSuggestion(null);
       recognizerRef.current?.setBaseTranscript(inputText);
@@ -950,7 +951,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   const handleStartCasualSession = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/lumi-chat', {
+      const res = await fetch('/api/seren-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -964,18 +965,18 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       const data = await res.json();
       setIsLoading(false);
       if (data.success && data.reply) {
-        const lumiMsg: ChatMessage = {
+        const serenMsg: ChatMessage = {
           id: `msg-starter-${Date.now()}`,
-          sender: 'lumi',
+          sender: 'seren',
           text: data.reply.replyText,
           timestamp: Date.now(),
           mood: normalizeReplyMood(data.reply.mood),
           feedback: data.reply.feedback,
         };
-        setMessagesForActiveMode((prev) => [...prev, lumiMsg]);
-        setLumiMood(lumiMsg.mood || 'speaking');
-        setCurrentSpeech(lumiMsg.text);
-        speakText(lumiMsg.text);
+        setMessagesForActiveMode((prev) => [...prev, serenMsg]);
+        setSerenMood(serenMsg.mood || 'speaking');
+        setCurrentSpeech(serenMsg.text);
+        speakText(serenMsg.text);
         soundFX.playChime('ding');
       }
     } catch (e) {
@@ -984,7 +985,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
       // Fall back to a built-in opener so the session still begins
       const fallbackMsg: ChatMessage = {
         id: `msg-starter-${Date.now()}`,
-        sender: 'lumi',
+        sender: 'seren',
         text: casualFallbackOpener(userProfile.nickname),
         timestamp: Date.now(),
         mood: 'speaking',
@@ -996,12 +997,12 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
   }, [userProfile, evaluation, speakText]);
 
   // Mode switch between TWO separate chat threads. Nothing is ever cleared —
-  // each mode keeps its own history. Casual: Lumi keeps chatting as a friend.
+  // each mode keeps its own history. Casual: Seren keeps chatting as a friend.
   // Interview: she starts a practice run ONLY if the interview thread is empty
   // (switching back to an in-progress interview just resumes it).
   const handleModeSwitch = (mode: 'Interview' | 'Casual Chat') => {
     if (mode === selectedTopicMode) return;
-    lumiVoice.stop();
+    serenVoice.stop();
     recognizerRef.current?.stop();
     if (interviewRecognizerRef.current) {
       interviewRecognizerRef.current.stop();
@@ -1038,7 +1039,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
           lastAnsweredIdxRef.current = session.lastAnsweredIdx;
           finalizingInterviewRef.current = false;
           setIsInterviewActive(!finished);
-          setIsLumiSpeakingQ(false);
+          setIsSerenSpeakingQ(false);
           setGreetingDone(true);
           setIsEvaluating(false);
         } else {
@@ -1048,38 +1049,47 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
         }
       }
     } else {
-      // Back to the friendly chat — history intact, Lumi stays available.
+      // Back to the friendly chat — history intact, Seren stays available.
       setCurrentTopic(null);
       setTopicQuestions([]);
       setUserAnswers({});
       setCurrentQuestionIdx(0);
       setIsInterviewActive(false);
-      setIsLumiSpeakingQ(false);
+      setIsSerenSpeakingQ(false);
       setIsEvaluating(false);
       setGreetingDone(true);
-      setLumiMood('speaking');
+      setSerenMood('speaking');
       setCurrentSpeech('');
     }
   };
 
   const isInterviewMode = selectedTopicMode === 'Interview';
 
+  // Keyboard shortcut (customizable in Settings) for the mode switch above.
+  // The shortcut stays active; its visual hint is only revealed on hover over
+  // the tab headers (the native tooltip on each tab also mentions it).
+  const modeShortcutHint = useShortcutHint('chat.toggleMode');
+  const [isModeSelectorHovered, setIsModeSelectorHovered] = useState(false);
+  useShortcut('chat.toggleMode', () => {
+    handleModeSwitch(modeRef.current === 'Interview' ? 'Casual Chat' : 'Interview');
+  });
+
   return (
-    <div id="lumi-live-chat-view" className="w-full max-w-6xl mx-auto flex flex-col flex-1 h-full min-h-0 space-y-2.5 sm:space-y-3">
+    <div id="seren-live-chat-view" className="w-full max-w-6xl mx-auto flex flex-col flex-1 h-full min-h-0 space-y-2.5 sm:space-y-3">
       {/* Top Banner */}
       <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#21222c] border border-[#44475a] backdrop-blur-md">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-[#bd93f9]/60 overflow-hidden shadow-md bg-[#21222c] shrink-0">
             <img
-              src={LUMI_PROFILE_IMAGE}
-              alt="Lumi"
+              src={SEREN_PROFILE_IMAGE}
+              alt="Seren"
               className="w-full h-full object-cover"
               draggable={false}
             />
           </div>
           <div>
             <h2 className="text-sm sm:text-base font-bold text-[#f8f8f2] flex items-center gap-2">
-              1v1 Chat with Lumi
+              1v1 Chat with Seren
             </h2>
             <p className="text-[11px] sm:text-xs text-[#6272a4]">
               {isInterviewMode
@@ -1092,12 +1102,17 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
         </div>
 
         {/* Mode Selector */}
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#282a36] border border-[#44475a] self-start sm:self-auto">
+        <div
+          className="relative flex items-center gap-1.5 p-1 rounded-xl bg-[#282a36] border border-[#44475a] self-start sm:self-auto"
+          onMouseEnter={() => setIsModeSelectorHovered(true)}
+          onMouseLeave={() => setIsModeSelectorHovered(false)}
+        >
           {(['Interview', 'Casual Chat'] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => handleModeSwitch(m)}
+              title={modeShortcutHint ? `Switch to ${m} (${modeShortcutHint})` : `Switch to ${m}`}
               className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                 selectedTopicMode === m
                   ? 'bg-[#bd93f9] text-[#282a36] font-bold shadow-sm'
@@ -1107,20 +1122,31 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
               {m}
             </button>
           ))}
+          {/* Hover-only shortcut hint — floats below the tabs so it never
+              shifts layout, and is invisible unless the mouse is over the tabs */}
+          {modeShortcutHint && (
+            <kbd
+              className={`hidden sm:block pointer-events-none absolute right-0 top-full mt-1 px-1.5 py-0.5 rounded border border-[#44475a] bg-[#21222c] font-mono text-[10px] text-[#8be9fd] transition-opacity duration-150 ${
+                isModeSelectorHovered ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              {modeShortcutHint}
+            </kbd>
+          )}
         </div>
       </div>
 
       {/* Main Grid: Avatar & Chat Window */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
-        {/* Lumi Avatar & Tips Column (4 cols) — tips keep their natural height
+        {/* Seren Avatar & Tips Column (4 cols) — tips keep their natural height
             and the chat terminal stretches to match, so tips are never cut */}
         <div className="lg:col-span-4 flex flex-col min-h-0 space-y-2.5 sm:space-y-3">
           <div className="shrink-0 flex justify-center">
-            <LumiAvatar
-              mood={lumiMood}
+            <SerenAvatar
+              mood={serenMood}
               currentSpeech={currentSpeech}
               isUserSpeaking={isRecording}
-              speaking={lumiTalking || isLumiSpeakingQ}
+              speaking={serenTalking || isSerenSpeakingQ}
               idleMood="greeting"
               voiceEnabled={voiceEnabled}
               onToggleVoice={onToggleVoice}
@@ -1198,7 +1224,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
               const showHeader = !prevMsg || prevMsg.sender !== msg.sender;
 
               // Small round avatar beside each message (messenger-style):
-              // Lumi uses her fixed profile picture; the user uses their photo.
+              // Seren uses her fixed profile picture; the user uses their photo.
               const AvatarBadge = isUser ? (
                 <div
                   className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-full border-2 border-[#ff79c6]/60 overflow-hidden shadow-md bg-[#21222c]"
@@ -1214,8 +1240,8 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
               ) : (
                 <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-full border-2 border-[#bd93f9]/50 overflow-hidden shadow-md bg-[#21222c]">
                   <img
-                    src={LUMI_PROFILE_IMAGE}
-                    alt="Lumi"
+                    src={SEREN_PROFILE_IMAGE}
+                    alt="Seren"
                     className="w-full h-full object-cover"
                     draggable={false}
                   />
@@ -1240,7 +1266,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
                         }`}
                       >
                         <span className={`font-semibold ${isUser ? 'text-[#ff79c6]' : 'text-[#bd93f9]'}`}>
-                          {isUser ? userProfile.nickname : 'Lumi'}
+                          {isUser ? userProfile.nickname : 'Seren'}
                         </span>
                         <span>• {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {msg.edited ? <span className="text-[10px] italic opacity-70">(edited)</span> : null}
@@ -1332,8 +1358,8 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
               <div className="flex items-center gap-2 text-xs text-[#6272a4] italic">
                 <span className="w-2 h-2 rounded-full bg-[#bd93f9] animate-ping" />
                 {isInterviewMode
-                  ? 'Lumi is formulating your examiner feedback...'
-                  : 'Lumi is typing...'}
+                  ? 'Seren is formulating your examiner feedback...'
+                  : 'Seren is typing...'}
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1370,7 +1396,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
                     onClick={() => startInterviewRecording()}
                     disabled={false}
                     className="p-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-[#50fa7b] hover:bg-[#44475a] transition-all shrink-0"
-                    title={isLumiSpeakingQ ? 'Click to answer now (Lumi will stop reading)' : 'Speak your answer'}
+                    title={isSerenSpeakingQ ? 'Click to answer now (Seren will stop reading)' : 'Speak your answer'}
                   >
                     <Mic className="w-5 h-5" />
                   </button>
@@ -1406,7 +1432,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
                 />
 
                 {/* Send button — always visible like Casual chat. Submits the
-                    typed answer (or live-transcript text) to Lumi. */}
+                    typed answer (or live-transcript text) to Seren. */}
                 <button
                   id="interview-send-btn"
                   type="button"
@@ -1487,7 +1513,7 @@ export const LumiLiveChat: React.FC<LumiLiveChatProps> = ({
                   placeholder={
                     isRecording
                       ? 'Listening to your speech...'
-                      : 'Type or speak your answer to Lumi...'
+                      : 'Type or speak your answer to Seren...'
                   }
                   autoFocus
                   containerClassName="flex-1"

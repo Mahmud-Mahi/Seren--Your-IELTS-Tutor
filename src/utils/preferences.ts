@@ -1,8 +1,8 @@
-const AUTO_MIC_KEY = 'lumi_auto_mic';
+const AUTO_MIC_KEY = 'seren_auto_mic';
 
 /**
  * Interview microphone preference (1v1 Chat):
- *  - true  → automatic: the mic opens by itself after Lumi reads each question
+ *  - true  → automatic: the mic opens by itself after Seren reads each question
  *  - false → manual: the user presses the mic button to start speaking
  * Persisted in localStorage so it survives reloads (default: automatic).
  */

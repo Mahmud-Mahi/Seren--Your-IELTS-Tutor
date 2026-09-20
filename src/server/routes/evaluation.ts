@@ -26,7 +26,7 @@ export function registerEvaluationRoutes(app: express.Express): void {
 app.post('/api/evaluate-speech', async (req, res) => {
     try {
       const { userProfile, responses, stats } = req.body;
-      const pinnedProvider = (req.get('x-lumi-provider') || '').toLowerCase() || null;
+      const pinnedProvider = (req.get('x-seren-provider') || '').toLowerCase() || null;
 
       // Defense-in-depth: if the student said (almost) nothing across all
       // parts, do not ask the LLM to score silence — return an honest,
@@ -78,7 +78,7 @@ app.post('/api/evaluate-speech', async (req, res) => {
       const maxTokens = Math.min(6000, 2400 + Math.ceil(sentences.length / 2) * 24);
 
       const { text, provider, model } = await callLLMWithCascade({
-        systemInstruction: 'You are Lumi, an expert IELTS Speaking examiner.',
+        systemInstruction: 'You are Seren, an expert IELTS Speaking examiner.',
         userPrompt: prompt,
         json: true,
         jsonSchemaHint: schemaHint,
@@ -226,7 +226,7 @@ app.post('/api/evaluate-speech', async (req, res) => {
   app.post('/api/evaluate-practice', async (req, res) => {
     try {
       const { userProfile, topic, questions, stats } = req.body;
-      const pinnedProvider = (req.get('x-lumi-provider') || '').toLowerCase() || null;
+      const pinnedProvider = (req.get('x-seren-provider') || '').toLowerCase() || null;
 
       const spokenWords = (questions || []).reduce(
         (sum: number, q: any) => sum + String(q?.userAnswer || '').trim().split(/\s+/).filter(Boolean).length,
@@ -263,7 +263,7 @@ app.post('/api/evaluate-speech', async (req, res) => {
       const maxTokens = Math.min(6000, 2400 + allSentences.length * 50);
 
       const { text, provider, model } = await callLLMWithCascade({
-        systemInstruction: 'You are Lumi, an expert IELTS Speaking examiner.',
+        systemInstruction: 'You are Seren, an expert IELTS Speaking examiner.',
         userPrompt: prompt,
         json: true,
         jsonSchemaHint: schemaHint,

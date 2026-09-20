@@ -19,7 +19,7 @@ export function registerSystemRoutes(app: express.Express): void {
   });
 
   // Factory reset: delete persisted settings and restore boot defaults.
-  // The client separately wipes all localStorage keys (lumi_*) and reloads,
+  // The client separately wipes all localStorage keys (seren_*) and reloads,
   // so the app starts completely from the beginning (fresh onboarding).
   app.post('/api/system/reset', async (req, res) => {
     try {

@@ -1,6 +1,6 @@
 export type CEFRLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
-export type LumiMood = 'greeting' | 'speaking' | 'listening' | 'encouraging' | 'evaluating' | 'celebrating';
+export type SerenMood = 'greeting' | 'speaking' | 'listening' | 'encouraging' | 'evaluating' | 'celebrating';
 
 export interface UserProfile {
   nickname: string;
@@ -105,10 +105,10 @@ export interface SpeakingEvaluation {
 
 export interface ChatMessage {
   id: string;
-  sender: 'lumi' | 'user';
+  sender: 'seren' | 'user';
   text: string;
   timestamp: number;
-  mood?: LumiMood;
+  mood?: SerenMood;
   // True once the user has edited the message in the chat bubble (optional,
   // so legacy/history messages simply render without the "(edited)" marker).
   edited?: boolean;
@@ -121,7 +121,7 @@ export interface ChatMessage {
 }
 
 /**
- * A completed evaluation persisted to report history (`lumi_eval_history`).
+ * A completed evaluation persisted to report history (`seren_eval_history`).
  * Lets the Score Report tab list every past test and jump back into any of
  * them without losing older results when a new test overwrites the "active"
  * evaluation.
@@ -137,7 +137,7 @@ export interface SavedReport {
 
 /**
  * A lesson-roadmap snapshot stored in the Custom Lesson history
- * (`lumi_lesson_history`). Every completed test / practice session keeps its
+ * (`seren_lesson_history`). Every completed test / practice session keeps its
  * AI-generated lessons so a newer test NEVER deletes older ones — the list is
  * ordered newest first, and each lesson's completed tick mark persists here.
  */

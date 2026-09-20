@@ -5,10 +5,10 @@ import { ChatMessage } from '../types';
  * with the same person:
  *   • Interview  : IELTS practice questions, answers, evaluation
  *   • Casual Chat: friendly conversation
- * They never mix. Both persist to localStorage under `lumi_chat_history`.
+ * They never mix. Both persist to localStorage under `seren_chat_history`.
  */
 
-const STORAGE_KEY = 'lumi_chat_history';
+const STORAGE_KEY = 'seren_chat_history';
 export type ChatMode = 'Interview' | 'Casual Chat';
 
 export function loadMessagesByMode(): Record<ChatMode, ChatMessage[]> {
@@ -45,7 +45,7 @@ function filterValidMessages(list: any[]): ChatMessage[] {
     (m): m is ChatMessage =>
       m &&
       typeof m.id === 'string' &&
-      (m.sender === 'user' || m.sender === 'lumi') &&
+      (m.sender === 'user' || m.sender === 'seren') &&
       typeof m.text === 'string' &&
       typeof m.timestamp === 'number'
   );
@@ -68,7 +68,7 @@ export function clearChatMessages(): void {
 // advanced `askQuestion(idx)` against an empty question list, which printed
 // "That was the last question" after the very first response. Persisting the
 // session lets the resume path rehydrate the full question flow.
-const SESSION_KEY = 'lumi_interview_session';
+const SESSION_KEY = 'seren_interview_session';
 
 export interface StoredInterviewQuestion {
   topic: string;

@@ -17,9 +17,9 @@ import {
   History,
   CalendarDays
 } from 'lucide-react';
-import { SpeakingEvaluation, UserProfile, LumiMood, SavedReport } from '../types';
-import { LumiAvatar } from './LumiAvatar';
-import { lumiVoice, soundFX } from '../utils/speech';
+import { SpeakingEvaluation, UserProfile, SerenMood, SavedReport } from '../types';
+import { SerenAvatar } from './SerenAvatar';
+import { serenVoice, soundFX } from '../utils/speech';
 
 interface EvaluationReportProps {
   evaluation: SpeakingEvaluation;
@@ -101,7 +101,7 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
   const handleSpeakText = (key: string, text: string) => {
     soundFX.playChime('start');
     setPlayingAudioKey(key);
-    lumiVoice.speak(text, {
+    serenVoice.speak(text, {
       onEnd: () => setPlayingAudioKey(null),
     });
   };
@@ -392,7 +392,7 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
                   Your 4-Stage Personalized Lessons are Ready!
                 </h3>
                 <p className="text-xs text-[#6272a4]">
-                  Lumi generated dynamic interactive drills targeting your exact errors to reach Band {userProfile.targetBand}.
+                  Seren generated dynamic interactive drills targeting your exact errors to reach Band {userProfile.targetBand}.
                 </p>
               </div>
 
@@ -415,7 +415,7 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
                   {filteredUpgrades.length} upgrade{filteredUpgrades.length === 1 ? '' : 's'}
                 </span>
               </div>
-              Examiners listen for natural collocations, idiomatic flexibility, and academic register. Each solution below is the model sample answer from the IELTS question bank for your topic — Lumi can read it aloud for you. Click the audio icon to hear it spoken with native cadence!
+              Examiners listen for natural collocations, idiomatic flexibility, and academic register. Each solution below is the model sample answer from the IELTS question bank for your topic — Seren can read it aloud for you. Click the audio icon to hear it spoken with native cadence!
             </div>
 
             {hasParts && (
@@ -476,13 +476,13 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] uppercase font-bold text-[#8be9fd] tracking-wider flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-[#8be9fd]" />
-                        Lumi's Band 8.5/9.0 Upgraded Phrasing:
+                        Seren's Band 8.5/9.0 Upgraded Phrasing:
                       </span>
                       <button
                         type="button"
                         onClick={() => handleSpeakText(`upg-${idx}`, upg.upgraded)}
                         className="p-1.5 rounded-lg bg-[#44475a] text-[#8be9fd] hover:bg-[#6272a4]/40 transition-colors flex items-center gap-1 text-[11px]"
-                        title="Listen to Lumi speak this sentence"
+                        title="Listen to Seren speak this sentence"
                       >
                         <Volume2 className="w-3.5 h-3.5" />
                         <span>Listen</span>
@@ -519,7 +519,7 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
                   {filteredTips.length} word{filteredTips.length === 1 ? '' : 's'}
                 </span>
               </div>
-              In IELTS speaking, pronunciation evaluates syllable stress, vowel clarity, and natural sentence intonation. These are high-risk words detected in YOUR speech — practice shadowing each with Lumi!
+              In IELTS speaking, pronunciation evaluates syllable stress, vowel clarity, and natural sentence intonation. These are high-risk words detected in YOUR speech — practice shadowing each with Seren!
             </div>
 
             {hasParts && (

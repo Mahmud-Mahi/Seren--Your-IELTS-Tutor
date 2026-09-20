@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Target, Users, Award, Sparkles, ArrowRight, CheckCircle2, BookOpen } from 'lucide-react';
 import { UserProfile } from '../types';
-import { LumiAvatar } from './LumiAvatar';
+import { SerenAvatar } from './SerenAvatar';
 import { soundFX } from '../utils/speech';
 
 interface OnboardingModalProps {
@@ -94,9 +94,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     }
   };
 
-  const currentLumiSpeech =
+  const currentSerenSpeech =
     step === 1
-      ? "Hi there! I'm Lumi, your personal AI English and IELTS Speaking Coach. What nickname should I call you?"
+      ? "Hi there! I'm Seren, your personal AI English and IELTS Speaking Coach. What nickname should I call you?"
       : step === 2
       ? `Wonderful to meet you, ${nickname || 'there'}! Tell me about your goals and who you'll be speaking English with.`
       : `Almost ready, ${nickname}! What is your target IELTS Band and current comfort level?`;
@@ -104,21 +104,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#191a21]/85 backdrop-blur-xl overflow-y-auto">
       <div className="relative w-full max-w-4xl bg-[#282a36] border border-[#44475a] rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 my-auto">
-        {/* Left Column: Lumi Character Visual */}
+        {/* Left Column: Seren Character Visual */}
         <div className="lg:col-span-5 bg-gradient-to-b from-[#21222c] to-[#282a36] p-4 sm:p-6 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[#44475a]">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#50fa7b] animate-pulse" />
               <span className="text-xs font-semibold uppercase tracking-wider text-[#bd93f9]">
-                Lumi Profile Setup
+                Seren Profile Setup
               </span>
             </div>
             <span className="text-xs text-[#6272a4] font-mono">Step {step} of 3</span>
           </div>
 
-          <LumiAvatar
+          <SerenAvatar
             mood={step === 1 ? 'greeting' : step === 2 ? 'speaking' : 'encouraging'}
-            currentSpeech={currentLumiSpeech}
+            currentSpeech={currentSerenSpeech}
             voiceEnabled={voiceEnabled}
             onToggleVoice={onToggleVoice}
             compact={true}
@@ -142,7 +142,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                     Let's get acquainted!
                   </h2>
                   <p className="text-sm text-[#6272a4] mt-1">
-                    Lumi will personalize your dialogue, voice feedback, and speaking drills.
+                    Seren will personalize your dialogue, voice feedback, and speaking drills.
                   </p>
                 </div>
 
@@ -167,9 +167,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 <div className="p-4 rounded-xl bg-[#21222c] border border-[#44475a] text-xs text-[#f8f8f2]/80 leading-relaxed">
                   <p className="font-semibold text-[#8be9fd] mb-1 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-[#8be9fd]" />
-                    How Lumi trains your speaking:
+                    How Seren trains your speaking:
                   </p>
-                  Lumi listens to your pronunciation, checks your IELTS grammatical precision, grades your vocabulary variety, and gives you instant CEFR evaluations with model Band 9 answers.
+                  Seren listens to your pronunciation, checks your IELTS grammatical precision, grades your vocabulary variety, and gives you instant CEFR evaluations with model Band 9 answers.
                 </div>
               </motion.div>
             )}

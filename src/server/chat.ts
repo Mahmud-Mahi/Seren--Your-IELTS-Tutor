@@ -28,7 +28,7 @@ export function generateFallbackChatResponse(userProfile: any, message: string, 
       replyText: tutorGreetingReply(nickname),
       mood: 'greeting',
       feedback: {
-        correctedSentence: `Hi Lumi, it's a pleasure to connect with you today.`,
+        correctedSentence: `Hi Seren, it's a pleasure to connect with you today.`,
         lexicalBoost: ['Pleasure to connect', 'Delighted to practice', 'Hit the ground running'],
         ieltsTip: 'Start your speaking responses with warmth and confident vocal projection.'
       }
@@ -67,7 +67,7 @@ export function buildDeterministicLessonSummary(
   const toTargetBand: string[] = [
     `Use ${focus} in 2-3 full spoken answers every day until it feels automatic.`,
     "Re-record this lesson's drill and compare your delivery with the Band 9 sample.",
-    `Ask Lumi for a fresh Custom Lesson drill on ${focus} to keep the fix sharp under exam pressure.`,
+    `Ask Seren for a fresh Custom Lesson drill on ${focus} to keep the fix sharp under exam pressure.`,
   ];
   return { improved, toTargetBand };
 }

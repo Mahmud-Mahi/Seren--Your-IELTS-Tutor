@@ -5,7 +5,11 @@ import dotenv from 'dotenv';
 // Load .env FIRST (before any module reads process.env at import time).
 dotenv.config();
 
-export const SETTINGS_FILE = path.join(process.cwd(), 'lumi-settings.json');
+export const SETTINGS_FILE = path.join(process.cwd(), 'seren-settings.json');
+// Pre-rename settings file. Read as a fallback so existing installations keep
+// their saved API keys / model / voice preferences after the rename. The
+// legacy file is never deleted — only read when the new file is absent.
+export const LEGACY_SETTINGS_FILE = path.join(process.cwd(), 'lumi-settings.json');
 
 // ---------------------------------------------------------------------------
 // Durable settings: survive server restarts (API keys, models, voice, pinning)
@@ -20,12 +24,18 @@ export interface StoredSettings {
   endpoints?: Record<string, { baseUrl?: string; apiKey?: string }>;
 }
 
-export function loadStoredSettings(): StoredSettings {
+function readSettingsFile(file: string): StoredSettings | null {
   try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) || {};
+    return JSON.parse(fs.readFileSync(file, 'utf8')) || null;
   } catch {
-    return {};
+    return null;
   }
+}
+
+export function loadStoredSettings(): StoredSettings {
+  // New file first; fall back to the pre-rename `lumi-settings.json` so no
+  // previously saved settings are lost. Legacy data is preserved as-is.
+  return readSettingsFile(SETTINGS_FILE) ?? readSettingsFile(LEGACY_SETTINGS_FILE) ?? {};
 }
 
 export function saveStoredSettings(settings: StoredSettings): void {

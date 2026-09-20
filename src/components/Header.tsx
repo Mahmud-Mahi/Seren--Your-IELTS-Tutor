@@ -1,7 +1,8 @@
 import React from 'react';
 import { Sparkles, Award, BookOpen, MessageSquare, Speech, Volume2, VolumeX, UserCheck, Settings } from 'lucide-react';
 import { UserProfile, SpeakingEvaluation } from '../types';
-import { USER_AVATAR_IMAGE, LUMI_PROFILE_IMAGE } from '../assets/characterAssets';
+import { USER_AVATAR_IMAGE, SEREN_PROFILE_IMAGE } from '../assets/characterAssets';
+import { useShortcutHint } from '../hooks/useShortcut';
 
 interface HeaderProps {
   currentView: 'diagnostic' | 'solutions' | 'report' | 'lessons' | 'chat';
@@ -22,6 +23,16 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleVoice,
   onOpenSettings,
 }) => {
+  // Shortcut hints for the tooltips (bindings are user-customizable in Settings).
+  const diagnosticHint = useShortcutHint('nav.diagnostic');
+  const solutionsHint = useShortcutHint('nav.solutions');
+  const reportHint = useShortcutHint('nav.report');
+  const lessonsHint = useShortcutHint('nav.lessons');
+  const chatHint = useShortcutHint('nav.chat');
+  const voiceHint = useShortcutHint('global.toggleVoice');
+  const settingsHint = useShortcutHint('global.openSettings');
+  const withHint = (label: string, hint: string) => (hint ? `${label} (${hint})` : label);
+
   return (
     <header className="sticky top-0 z-40 w-full bg-[#21222c]/90 backdrop-blur-xl border-b border-[#44475a]/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
@@ -30,8 +41,8 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#ff79c6] via-[#bd93f9] to-[#8be9fd] p-[1.5px] shadow-lg shadow-[#bd93f9]/25">
             <div className="w-full h-full rounded-[14px] overflow-hidden bg-[#282a36]">
               <img
-                src={LUMI_PROFILE_IMAGE}
-                alt="Lumi"
+                src={SEREN_PROFILE_IMAGE}
+                alt="Seren"
                 className="w-full h-full object-cover"
                 draggable={false}
               />
@@ -42,10 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-base sm:text-lg tracking-tight text-[#f8f8f2] font-sans">
-                LUMI
-              </span>
-              <span className="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-[#44475a] border border-[#6272a4]/50 text-[#8be9fd]">
-                IELTS AI
+                SEREN
               </span>
             </div>
             <p className="text-[11px] text-[#6272a4] hidden sm:block">
@@ -61,6 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
               id="nav-diagnostic-btn"
               type="button"
               onClick={() => onSelectView('diagnostic')}
+              title={withHint('Cambridge Test — full speaking test', diagnosticHint)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 currentView === 'diagnostic'
                   ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
@@ -80,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
                   : 'text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a]/50'
               }`}
-              title="Cambridge Solutions — Lumi answers Cambridge questions live"
+              title={withHint('Cambridge Solutions — Seren answers Cambridge questions live', solutionsHint)}
             >
               <Speech className="w-3.5 h-3.5" />
               <span>Solutions</span>
@@ -91,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={() => evaluation && onSelectView('report')}
               disabled={!evaluation}
+              title={withHint('Score Report — band, strengths & next steps', reportHint)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 currentView === 'report'
                   ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
@@ -113,6 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={() => evaluation && onSelectView('lessons')}
               disabled={!evaluation}
+              title={withHint('Custom Lessons — your personalized roadmap', lessonsHint)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 currentView === 'lessons'
                   ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
@@ -129,6 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
               id="nav-chat-btn"
               type="button"
               onClick={() => onSelectView('chat')}
+              title={withHint('1v1 Chat — interview & casual practice', chatHint)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 currentView === 'chat'
                   ? 'bg-[#bd93f9] text-[#282a36] shadow-md shadow-[#bd93f9]/30 font-bold'
@@ -167,7 +179,9 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-[#bd93f9]/20 border-[#bd93f9]/50 text-[#bd93f9] hover:bg-[#bd93f9]/30'
                 : 'bg-[#21222c] border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2]'
             }`}
-            title={voiceEnabled ? 'Mute Voice Audio' : 'Unmute Voice Audio'}
+            title={voiceEnabled
+              ? withHint('Mute Voice Audio', voiceHint)
+              : withHint('Unmute Voice Audio', voiceHint)}
           >
             {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
@@ -177,7 +191,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenSettings}
             className="p-2 rounded-xl border border-[#44475a] bg-[#21222c] hover:bg-[#44475a] text-[#6272a4] hover:text-[#8be9fd] transition-colors"
-            title="AI Engine & Voice Settings"
+            title={withHint('AI Engine, Voice & Shortcut Settings', settingsHint)}
           >
             <Settings className="w-4 h-4" />
           </button>

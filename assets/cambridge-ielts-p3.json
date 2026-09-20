@@ -838,5 +838,341 @@
     "part": "Part 3",
     "instruction": "How important is it for students to have enough leisure time?",
     "response": "Essential, and not out of kindness — it's functional. Leisure is when memory consolidates and motivation refuels; students with zero downtime burn out precisely when exams matter most. Leisure isn't the opposite of study; it's part of the system. The healthiest schedules protect sleep, some daily unstructured time, and at least one genuinely free day."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "different kinds of tourist attractions",
+    "part": "Part 3",
+    "instruction": "What are the most popular tourist attractions in your country?",
+    "response": "They fall into three groups: the classic historical sites — the Great Wall, the Forbidden City — the dramatic natural landscapes, and, increasingly, city experiences built around food and nightlife. Young travellers now chase that third category as eagerly as the first. Ancient history remains the headline, but atmosphere is the growth market."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "different kinds of tourist attractions",
+    "part": "Part 3",
+    "instruction": "How do the types of tourist attractions that younger people like to visit compare with those that older people like to visit?",
+    "response": "Older visitors want the canonical sights — monuments, museums, guided history — and they want them properly explained. Younger travellers lean towards atmosphere and participation: night markets, photogenic neighbourhoods, food tours, anything that feels lived in rather than curated. So the contrast is less about places than about what counts as a good story afterwards."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "different kinds of tourist attractions",
+    "part": "Part 3",
+    "instruction": "Do you agree that some tourist attractions (e.g. national museums/galleries) should be free to visit?",
+    "response": "Yes, at least for the national collections. They exist to preserve a shared heritage, and a ticket at the door quietly turns a public right into a luxury for the comfortably off. Free entry also changes behaviour, because families then visit casually rather than treating it as one expensive outing. Donations and paid special exhibitions balance the cost fairly."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "the importance of international tourism",
+    "part": "Part 3",
+    "instruction": "Why is tourism important to a country?",
+    "response": "Economically it is one of the most accessible earners — foreign currency reaching hotels, drivers and small traders, so the money disperses rather than pooling at the top. It also employs people without elite qualifications, which matters enormously in rural areas. And it does quiet diplomatic work, because visitors carry home a personal impression."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "the importance of international tourism",
+    "part": "Part 3",
+    "instruction": "What are the benefits to individuals of visiting another country as tourists?",
+    "response": "Most obviously, perspective — you discover that your own assumptions, about everything from meal times to personal space, are conventions rather than truths. Practically, you become more adaptable, because unfamiliar signs and currencies build a competence that carries into ordinary life. It also makes people less fearful. It is hard to demonise a place once you have eaten breakfast there."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "the importance of international tourism",
+    "part": "Part 3",
+    "instruction": "How necessary is it for tourists to learn the language of the country they're visiting?",
+    "response": "Helpful rather than necessary, and the distinction matters. Fluency is an absurd expectation for a fortnight's holiday; a dozen phrases, though, go disproportionately far, because they signal respect rather than demand service. Translation technology has removed the practical pressure. The real value of those words is social — a greeting changes how you are received."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "online reviews",
+    "part": "Part 3",
+    "instruction": "What kinds of things do people write online reviews about in your country?",
+    "response": "Almost anything transactional — restaurants, hotels, delivery services, gadgets, salons, even hospitals and schools. Food and travel dominate, because those are purchases people feel emotional about. Increasingly, reviews have become a form of public customer service: people write them less to guide strangers than to force a company to respond. That shift has changed the tone."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "online reviews",
+    "part": "Part 3",
+    "instruction": "Why do some people write online reviews?",
+    "response": "For a mixture of motives, and the mixture is what makes them interesting. Some want to help strangers avoid a bad experience, which is genuinely generous. Others want to be heard after being ignored, or to warn a business that it has lost them. And some simply enjoy the small authority of explaining the world to others."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "online reviews",
+    "part": "Part 3",
+    "instruction": "Do you think that online reviews are good for both shoppers and companies?",
+    "response": "Broadly yes, though not automatically. For shoppers, reviews replace advertising with something closer to testimony, and their sheer volume makes suppression difficult. For companies, they are free and brutally detailed feedback, and a market in which competence becomes visible. Fake reviews do real damage, so platforms must police them properly."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "customer service",
+    "part": "Part 3",
+    "instruction": "What do you think it might be like to work in a customer service job?",
+    "response": "Emotionally demanding in a way outsiders underestimate. You absorb other people's frustration all day, often about problems you did not cause and cannot fix, while being measured on speed and on how pleasant you sounded. The skills involved — patience, clear language, calm under insult — are real and badly undervalued."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "customer service",
+    "part": "Part 3",
+    "instruction": "Do you agree that customers are more likely to complain nowadays?",
+    "response": "Partly, though I would frame it as complaining having become easier rather than people having become ruder. A review box and a public forum mean a bad experience can be registered in thirty seconds, whereas a generation ago you would have written a letter or simply fumed. That visibility raises standards, and also encourages some performative outrage."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "customer service",
+    "part": "Part 3",
+    "instruction": "How important is it for companies to take all customer complaints seriously?",
+    "response": "Very, though taking them seriously is not the same as conceding every one. Complaints are free data about where the experience breaks down, and an ignored complaint usually becomes a public one. What matters is a fair, quick process and a human response. A problem handled well can earn more loyalty than no problem at all."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "expensive items",
+    "part": "Part 3",
+    "instruction": "Which expensive items would many young people (in your country) like to buy?",
+    "response": "Phones and laptops first, obviously, then branded trainers, watches and beauty products. Beyond gadgets, the big aspirations are a car and, eventually, a flat — though that last one has moved from expensive to almost mythical for many young people. Travel and concert tickets count too. What unites them all is visibility."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "expensive items",
+    "part": "Part 3",
+    "instruction": "How do the expensive items that younger people want to buy differ from those that older people want to buy?",
+    "response": "Younger buyers favour things that are portable, visible and status-bearing — devices, brands, experiences worth photographing. Older buyers tend towards durability and security: property, good furniture, a reliable car, insurance, and increasingly things for their children. So the difference is really about time horizons rather than taste."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "expensive items",
+    "part": "Part 3",
+    "instruction": "Do you think that people are more likely to buy expensive items for their friends or for themselves?",
+    "response": "Themselves, overwhelmingly, and I think most people know it even as they deny it. People economise on presents and splurge on themselves, usually with a beautifully reasoned justification attached. There are exceptions — parents buying for children, gifts carrying real symbolic weight — but as a rule, generosity is more careful than self-indulgence."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "rich people",
+    "part": "Part 3",
+    "instruction": "How difficult is it to become very rich in today's world?",
+    "response": "Genuinely difficult, and the difficulty concentrates the further up you go. Modest comfort is achievable through steady work; serious wealth usually requires an unusual combination of timing, capital, appetite for risk and plain luck. Structural advantages — education, connections, family money — tilt the board before anyone starts. It is narrow rather than impossible."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "rich people",
+    "part": "Part 3",
+    "instruction": "Do you agree that money does not necessarily bring happiness?",
+    "response": "I agree, though 'necessarily' is doing a great deal of work in that sentence. Money reliably removes misery — debt, insecurity, medical worry — and that removal is a large and genuine source of happiness. Beyond a certain point, however, extra wealth buys less and less, because what people need next is time, health and relationships. Necessary but insufficient."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "rich people",
+    "part": "Part 3",
+    "instruction": "In what ways might rich people use their money to help society?",
+    "response": "Through philanthropy — funding research, schools, museums and disaster relief where governments are slow. But the more consequential route is how they run their businesses: paying properly, treating supply chains ethically, and not externalising costs onto the public. Money helps most when it is patient, transparent and aimed at problems the market ignores."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "computer games",
+    "part": "Part 3",
+    "instruction": "What kinds of computer games do people play in your country?",
+    "response": "An enormous range, but the mass audience is on mobile: battle games, puzzles, and the social ones you play with classmates. On computers and consoles, competitive online games and open-world adventures dominate, and sports titles have a steady following. What characterises this market is that gaming is intensely social, often just an excuse to spend time together."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "computer games",
+    "part": "Part 3",
+    "instruction": "Why do people enjoy playing computer games?",
+    "response": "For the same reasons people enjoy any absorbing activity, but far more efficiently. Games offer clear goals, immediate feedback and a visible sense of progress, which ordinary life rarely provides so tidily. They are also a social space and, for many, a release valve after a controlled day. The game world obeys rules and rewards effort."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "computer games",
+    "part": "Part 3",
+    "instruction": "Do you think that all computer games should have a minimum age for players?",
+    "response": "Some age rating is sensible, but a single minimum applied to all games would be crude. Content differs enormously — a puzzle game and a violent shooter are not remotely comparable — so the useful instrument is a rating system that describes content rather than a law that bans wholesale. Parents still matter more than any label."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "technology in the classroom",
+    "part": "Part 3",
+    "instruction": "In what ways can technology in the classroom be helpful?",
+    "response": "Mainly by removing friction. Projectors and shared documents make explanations visible and revisitable, quizzes give instant feedback, and online resources let a class hear native pronunciation or tour a museum without leaving the room. For students working at different paces, recorded lessons and adaptive exercises are quietly transformative."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "technology in the classroom",
+    "part": "Part 3",
+    "instruction": "Do you agree that students are often better at using technology than their teachers?",
+    "response": "Often, yes, though with an important qualification. Students are faster and more fearless with apps, having grown up experimenting without any fear of breaking something. Teachers, though, are usually better at using technology for a purpose: judging what is reliable, structuring a task, and knowing when a tool adds nothing. Fluency and judgement are different skills."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "technology in the classroom",
+    "part": "Part 3",
+    "instruction": "Do you believe that computers will ever replace human teachers?",
+    "response": "No, and I say that as someone who has used the alternatives. Computers excel at delivering content, marking objectively and drilling practice endlessly. They are poor at what teaching is really made of: noticing that a student has gone quiet, adjusting a task mid-lesson, and making someone believe they can improve."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "staying in hotels",
+    "part": "Part 3",
+    "instruction": "What things are important when people are choosing a hotel?",
+    "response": "Location first, almost always — near transport or near whatever you have come to see. Then the unglamorous reliabilities: cleanliness, a bed that is not a punishment, decent water pressure, quiet at night. Reviews have made people warier about photographs, too. Yet what people say they want and what they actually pay for often diverge."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "staying in hotels",
+    "part": "Part 3",
+    "instruction": "Why do some people not like staying in hotels?",
+    "response": "Because a hotel is somebody else's space with somebody else's rules. You sleep in an unfamiliar bed, eat when the kitchen decides, and feel vaguely obliged to be tidy. The identical rooms strike some people as bleak, offering no sense of belonging. Others simply dislike the cost or the anonymity."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "staying in hotels",
+    "part": "Part 3",
+    "instruction": "Do you think staying in a luxury hotel is a waste of money?",
+    "response": "Rarely a waste, but genuinely a luxury, and its value depends on the trip. If you are out from morning to night, the spa and the chandeliers go unused and you have paid for scenery you never saw. If the hotel is the holiday, though, you are buying quiet, space and being looked after."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "working in a hotel",
+    "part": "Part 3",
+    "instruction": "Do you think hotel work is a good career for life?",
+    "response": "It can be, though it suits certain temperaments. The industry teaches transferable skills quickly — languages, problem-solving under pressure, managing difficult people — and promotion can be fast for anyone reliable. The drawbacks are real, though: unsocial hours, seasonal insecurity, and pay that starts very low."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "working in a hotel",
+    "part": "Part 3",
+    "instruction": "How does working in a big hotel compare with working in a small hotel?",
+    "response": "A large hotel is a system: specialised roles, strict procedures, formal training and a clear ladder, but you can feel like one component among hundreds. A small hotel gives you variety and real responsibility almost immediately, and colleagues feel like a team. What you lose is structure and, often, benefits."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "working in a hotel",
+    "part": "Part 3",
+    "instruction": "What skills are needed to be a successful hotel manager?",
+    "response": "Calm and stamina above all, because the job is a long series of small crises. You need to read people quickly — guests and staff alike — and to delegate without ever losing standards. Financial literacy matters more than people expect. And you need a warmth that survives the third difficult complaint of the day."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "shopping online",
+    "part": "Part 3",
+    "instruction": "What kinds of things do people in your country often buy from online shops?",
+    "response": "In practice, nearly everything: clothes, electronics, cosmetics, groceries, medicines, furniture, and an enormous volume of household basics ordered almost reflexively. The fastest-growing categories are the unglamorous ones, where convenience beats browsing. Live-streamed selling has widened it further, because people now buy things they would never have searched for."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "shopping online",
+    "part": "Part 3",
+    "instruction": "Why do you think online shopping has become so popular nowadays?",
+    "response": "It removes almost every friction at once: no travel, no queues, no closing hours, no hovering assistant, and prices that are instantly comparable. Delivery infrastructure then made it reliable, and reviews made it trustworthy. Once a habit is faster, cheaper and less tiring than the alternative, it wins by default."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "shopping online",
+    "part": "Part 3",
+    "instruction": "What are some possible disadvantages of buying things from online shops?",
+    "response": "The obvious ones are not seeing the product and the hassle of returns, but the deeper costs are subtler. You cannot ask a question and get a straight answer, so you rely on reviews, some of them faked. Packaging waste is enormous, and every convenient order quietly removes another shop from the high street."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "the culture of consumerism",
+    "part": "Part 3",
+    "instruction": "Why do many people today keep buying things which they do not need?",
+    "response": "Because consumption has been engineered to feel emotional rather than practical. Advertising sells identity rather than objects; platforms remove the pause between wanting and having; and shopping is one of the few pleasures that is cheap, immediate and legal. Buying also promises a change of mood, which no object ever delivers."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "the culture of consumerism",
+    "part": "Part 3",
+    "instruction": "Do you believe the benefits of a consumer society outweigh the disadvantages?",
+    "response": "Mostly yes, with reservations. Consumer economies generate choice, comfort, employment and remarkable innovation, and it is easy to forget how recently ordinary people owned so little. The costs are environmental and psychological — extraction, waste, and measuring life by acquisitions. The benefits still outweigh the harm, but the margin is narrowing."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "the culture of consumerism",
+    "part": "Part 3",
+    "instruction": "How possible is it to avoid the culture of consumerism?",
+    "response": "Completely avoiding it is close to impossible, because it is the water we swim in — even opting out usually means buying something else instead. But you can push back at the edges: repair rather than replace, buy second-hand, unsubscribe from the marketing, and notice the gap between wanting and needing."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "famous people today",
+    "part": "Part 3",
+    "instruction": "What kinds of people are most famous in your country today?",
+    "response": "Entertainers dominate: actors, singers and, above all, the influencers and live-streamers who built their audiences directly online. Athletes are close behind, and a handful of business figures are genuinely household names. Politicians are famous in a more dutiful way, recognised rather than adored. The route to fame has changed completely."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "famous people today",
+    "part": "Part 3",
+    "instruction": "Why are there so many stories about famous people in the news?",
+    "response": "Because attention is the product. News organisations know a well-known face reliably draws readers, and celebrity stories are cheap to produce and endless in supply. Fame also works as a shared reference, since you can discuss a celebrity with a stranger without offending anyone. The appetite is curiosity and escapism rather than importance."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "famous people today",
+    "part": "Part 3",
+    "instruction": "Do you agree or disagree that many young people today want to be famous?",
+    "response": "I agree that many do, though I would separate wanting fame from wanting what fame appears to provide. What is genuinely new is its plausibility — a phone and an audience make celebrity look like a hobby rather than a lottery. Fewer people want to be scrutinised than want to be seen."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "advantages of being famous",
+    "part": "Part 3",
+    "instruction": "Do you think it is easy for famous people to earn a lot of money?",
+    "response": "Much easier than for anyone else, yes — attention converts into income almost automatically through advertising, appearances and licensing. But it is not effortless. Endorsements demand constant visibility, reputations can collapse overnight, and fame usually arrives with a team to pay. For a lucky few, it is genuinely easy."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "advantages of being famous",
+    "part": "Part 3",
+    "instruction": "Why might famous people enjoy having fans?",
+    "response": "Partly it is affirmation: being admired by strangers answers a question everyone carries about their own worth. Fans also create belonging, because a community forms around you and shares your interests. And they provide professional security. The difficult part is that the attention cannot be switched off, or aimed at the real person."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "advantages of being famous",
+    "part": "Part 3",
+    "instruction": "In what ways could famous people use their influence to do good things in the world?",
+    "response": "By lending their voice to causes that lack one — public health campaigns, disaster appeals, charities that need a familiar face to get noticed. They can also shift norms by what they do publicly: discussing mental health, or turning down an exploitative deal. What matters is that it is sustained rather than a photograph."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "science and the public",
+    "part": "Part 3",
+    "instruction": "How interested are most people in your country in science?",
+    "response": "Less than they imagine and more than is often assumed. There is broad, warm interest in health, space and technology, and science stories travel well online. But sustained engagement — actually reading about the research rather than the headline — remains a minority habit, and it correlates strongly with education."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "science and the public",
+    "part": "Part 3",
+    "instruction": "Why do you think children today might be better at science than their parents?",
+    "response": "Mainly because of exposure. Children grow up with curated explanations, videos, museums designed to be touched, and answers available within seconds, whereas their parents learnt science from a textbook and a blackboard. They are also far less frightened of being wrong, which is the real prerequisite for scientific thinking."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "science and the public",
+    "part": "Part 3",
+    "instruction": "How do you suggest the public can learn more about scientific developments?",
+    "response": "Two things help most: better storytelling and better access. Scientists who explain their work plainly reach enormous audiences online, and open days, podcasts and plain-language summaries remove both the paywall and the jargon. Schools matter too, since curiosity is usually either encouraged or extinguished early. The public must also make the effort."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "scientific discoveries",
+    "part": "Part 3",
+    "instruction": "What do you think are the most important scientific discoveries in the last 100 years?",
+    "response": "Antibiotics must be near the top, since they changed what it means to be ill. Then the discovery of DNA's structure, which made biology readable, and the vaccines that eliminated diseases once fatal to children. Add the transistor and modern computing, without which the rest could not be studied at all."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "scientific discoveries",
+    "part": "Part 3",
+    "instruction": "Do you agree or disagree that there are no more major scientific discoveries left to make?",
+    "response": "I disagree emphatically. That claim has been made confidently in every era, and each time it has been proved wrong within a generation. Entire fields — the deep ocean, the human microbiome, consciousness, quantum computing — are barely mapped. Running out of easy questions is not the same as running out of questions."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "scientific discoveries",
+    "part": "Part 3",
+    "instruction": "Who should pay for scientific research - governments or private companies?",
+    "response": "Both, in different roles. Governments must fund the long, unprofitable questions — basic research, public health, climate — because companies cannot justify them to shareholders, and many breakthroughs begin exactly there. Private money is faster at turning discoveries into products. The danger is industry funding only what it can profit from, and quietly shaping the findings."
   }
 ]

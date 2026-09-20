@@ -1,5 +1,5 @@
 {
-  "name": "Lumi — Your IELTS Tutor",
-  "description": "Interactive AI IELTS tutor Lumi for speaking evaluation, CEFR diagnostic testing, real-time voice practice, and personalized lesson plans.",
+  "name": "Seren — Your IELTS Tutor",
+  "description": "Interactive AI IELTS tutor Seren for speaking evaluation, CEFR diagnostic testing, real-time voice practice, and personalized lesson plans.",
   "requestFramePermissions": ["microphone"]
 }

@@ -558,5 +558,229 @@
     "part": "Part 1",
     "instruction": "In general, do you find it easy to read maps? [Why/Why not?]",
     "response": "Reasonably — I handle orientation and scale fine, and I enjoy the little puzzle of matching streets to reality. What I never trust is my own sense of direction when it disagrees with the map; experience has taught me that the map wins that argument every time."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "People you study/work with",
+    "part": "Part 1",
+    "instruction": "Who do you spend most time studying/working with? [Why?]",
+    "response": "These days, a small cluster of colleagues on a shared project — we appear in each other's calendars more than our own diaries. What makes it work is that nobody performs; we admit what we don't know. Shared confusion, I've discovered, is oddly bonding."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "People you study/work with",
+    "part": "Part 1",
+    "instruction": "What kinds of things do you study/work on with other people? [Why?]",
+    "response": "Mostly things too large for one head — projects, presentations, the occasional nightmare spreadsheet. I like the early stage, when ideas are still shapeless, because that is when discussion genuinely changes the outcome. Once decisions harden, company matters far less."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "People you study/work with",
+    "part": "Part 1",
+    "instruction": "Are there times when you study/work better by yourself? [Why/Why not?]",
+    "response": "Constantly — anything needing real concentration, such as reading or drafting, has to be done alone. With people around I do my best talking and my worst thinking. So I treat collaboration as a spice rather than a staple: excellent in the right dose, exhausting as a diet."
+  },
+  {
+    "header": "Cambridge 2021 (Test-1)",
+    "topic": "People you study/work with",
+    "part": "Part 1",
+    "instruction": "Is it important to like the people you study/work with? [Why/Why not?]",
+    "response": "Not to like them exactly — respect and reliability count for more — but fondness genuinely helps. You will happily go the extra mile for someone whose company you enjoy. The reverse also holds, which is how perfectly professional teams end up quietly miserable."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "Flowers and plants",
+    "part": "Part 1",
+    "instruction": "Do you have a favourite flower or plant? [Why/Why not?]",
+    "response": "Lavender, probably — it smells like the end of a good day and survives my neglect. My grandmother grew it in her courtyard, so the scent carries more memory than aesthetic judgement. I am sentimental about plants that forgive you."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "Flowers and plants",
+    "part": "Part 1",
+    "instruction": "What kinds of flowers and plants grow near where you live? [Why/Why not?]",
+    "response": "Plenty, thanks to a generous climate — magnolias in spring, crape myrtle in high summer, and stubborn weeds in every pavement crack. The street trees lift my mood more reliably than any park I have visited. Cities are softer than they look."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "Flowers and plants",
+    "part": "Part 1",
+    "instruction": "Is it important to you to have flowers and plants in your home? [Why/Why not?]",
+    "response": "Moderately — a few hardy plants on the balcony and flowers whenever somebody is visiting. I would like to claim it is about air quality, but really it is about the room feeling alive. Dead leaves, though, are an instant morale killer."
+  },
+  {
+    "header": "Cambridge 2021 (Test-2)",
+    "topic": "Flowers and plants",
+    "part": "Part 1",
+    "instruction": "Have you ever bought flowers for someone else? [Why/Why not?]",
+    "response": "Regularly — for my mother on birthdays and for friends when something needs celebrating or softening. I have learned to buy what the recipient actually likes rather than what looks impressive in the shop. Flowers are the message; the wrapping is merely the envelope."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "Summer",
+    "part": "Part 1",
+    "instruction": "Is summer your favourite time of year? [Why/Why not?]",
+    "response": "No — autumn wins comfortably. Summer here is beautiful and merciless, all glare and humidity, and I wilt in it. What I love are the long evenings, once the heat relents and the whole neighbourhood comes outside. That is the part I would keep."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "Summer",
+    "part": "Part 1",
+    "instruction": "What do you do in summer when the weather's very hot? [Why?]",
+    "response": "I retreat indoors and become a creature of air conditioning, honestly. Errands shift to early morning or after dark, and cold noodles replace anything requiring an oven. It is less a lifestyle than a survival strategy, but it works."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "Summer",
+    "part": "Part 1",
+    "instruction": "Do you go on holiday every summer? [Why/Why not?]",
+    "response": "Not every year — work and budget both get a vote. When I do travel, I head somewhere cooler or coastal rather than chasing more sunshine. A holiday you need another holiday to recover from strikes me as a design flaw."
+  },
+  {
+    "header": "Cambridge 2021 (Test-3)",
+    "topic": "Summer",
+    "part": "Part 1",
+    "instruction": "Did you enjoy the summer holidays when you were at school? [Why/Why not?]",
+    "response": "Enormously — six weeks felt like a small lifetime, and I had no concept of wasting them. We cycled, swam badly and invented games whose rules nobody remembers now. I still measure freedom against that feeling, and nothing modern quite matches it."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "Fast food",
+    "part": "Part 1",
+    "instruction": "What kinds of fast food have you tried? [Why/Why not?]",
+    "response": "Most of the usual suspects — burgers, fried chicken, pizza, plus a long list of local street food that is technically fast and definitely food. I have tried plenty I would not order twice. Curiosity is cheap; regret is mercifully brief."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "Fast food",
+    "part": "Part 1",
+    "instruction": "Do you ever use a microwave to cook food quickly? [Why/Why not?]",
+    "response": "Constantly, and without shame — reheating rice, steaming vegetables, rescuing leftovers. It is a tool rather than a cuisine, so snobbery about it seems misplaced. What it cannot do is make anything crisp, which is why it rarely gets the last word."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "Fast food",
+    "part": "Part 1",
+    "instruction": "How popular are fast food restaurants where you live? [Why/Why not?]",
+    "response": "Extremely — you are never more than a few minutes from one, and they are busiest late at night. Price and speed explain most of it, though convenience has a habit of hardening into routine. The midnight queues say more than the advertising does."
+  },
+  {
+    "header": "Cambridge 2021 (Test-4)",
+    "topic": "Fast food",
+    "part": "Part 1",
+    "instruction": "When would you go to a fast-food restaurant? [Why/Why not?]",
+    "response": "Usually when I am tired and short of time — a late journey, a looming deadline, a day that got away from me. Occasionally it is pure craving, and I have stopped pretending otherwise. It is not a treat; it is a rescue service."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "Email",
+    "part": "Part 1",
+    "instruction": "What kinds of emails do you receive about your work or studies?",
+    "response": "An endless tide of the necessary and the pointless: updates, requests, meeting invitations, and newsletters I cannot remember signing up for. Perhaps one in ten actually changes what I do, which makes skimming a survival skill. The real talent is triage, not reading."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "Email",
+    "part": "Part 1",
+    "instruction": "Do you prefer to email, phone or text your friends? [Why?]",
+    "response": "Texting, easily — quick, low-commitment, and nobody has to perform enthusiasm. Email feels like stationery: charming on occasion, absurd for daily life. Phone calls I reserve for things that genuinely matter, which lends them a weight and urgency I rather value."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "Email",
+    "part": "Part 1",
+    "instruction": "Do you reply to emails and messages as soon as you receive them? [Why/Why not?]",
+    "response": "Not generally — I prefer to give a considered answer rather than a reflex one, so I batch my replies. Anything urgent gets an immediate response, but everything else can wait an hour. Instant replies create expectations nobody can sustain."
+  },
+  {
+    "header": "Cambridge 2020 (Test-1)",
+    "topic": "Email",
+    "part": "Part 1",
+    "instruction": "Are you happy to receive emails that are advertising things? [Why/Why not?]",
+    "response": "Largely no — my inbox is a workplace, not a shop window, and unsolicited marketing feels like someone leafleting my desk. A newsletter I actually chose is another matter entirely. The line between permission and intrusion is worth defending."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "Languages",
+    "part": "Part 1",
+    "instruction": "How many languages can you speak? [Why/Why not?]",
+    "response": "Two fluently, and enough of a third to be politely understood until the conversation turns technical. Languages rust without use, which is why the dormant ones tend to stay dormant. My ambition has always outrun my maintenance, and I suspect that is extremely common."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "Languages",
+    "part": "Part 1",
+    "instruction": "How useful will English be to you in your future? [Why/Why not?]",
+    "response": "Very — it is already the language I read, research and send half my messages in. Whatever I end up doing, English will be the doorway rather than the destination. It has stopped being a skill and quietly become infrastructure."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "Languages",
+    "part": "Part 1",
+    "instruction": "What do you remember about learning languages at school? [Why/Why not?]",
+    "response": "Mostly the repetition — vocabulary lists, stilted dialogues, and a teacher correcting my accent kindly but constantly. I have retained almost none of the grammar and a surprising number of the songs. Immersion teaches faster, but memory is made of silliness."
+  },
+  {
+    "header": "Cambridge 2020 (Test-2)",
+    "topic": "Languages",
+    "part": "Part 1",
+    "instruction": "What do you think would be the hardest language for you to learn? [Why?]",
+    "response": "Probably Arabic — an unfamiliar script, sounds I cannot reliably hear, and grammar that seems to rearrange itself mid-sentence. Japanese tempts me, but the writing systems alone would take a decade. I admire anyone who manages either; I would need a personality transplant."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "Swimming",
+    "part": "Part 1",
+    "instruction": "Did you learn to swim when you were a child? [Why/Why not?]",
+    "response": "Eventually, though never gracefully — lessons at a municipal pool where the water was permanently cold and the instructor permanently unimpressed. I could float for ages before I could genuinely swim. Confidence, in my case, arrived long after competence."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "Swimming",
+    "part": "Part 1",
+    "instruction": "How often do you go swimming now? [Why/Why not?]",
+    "response": "Less often than I should — perhaps once a fortnight when I am being virtuous. It is the one form of exercise that leaves me calmer rather than wrung out, which makes my laziness hard to defend. The changing rooms remain my favourite excuse."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "Swimming",
+    "part": "Part 1",
+    "instruction": "What places are there for swimming where you live? [Why?]",
+    "response": "A municipal pool within walking distance, a couple of hotel pools that sell day passes, and the sea a reasonable train ride away. The public one is much the cheapest and by far the busiest. That says something quietly reassuring about the city."
+  },
+  {
+    "header": "Cambridge 2020 (Test-3)",
+    "topic": "Swimming",
+    "part": "Part 1",
+    "instruction": "Do you think it would be more enjoyable to go swimming outdoors or at an indoor pool? [Why?]",
+    "response": "Outdoors, in principle — open water, real sky, no chlorine haze. In practice I am a fair-weather swimmer who likes a hot shower and a floor that does not move. So: outdoors for the memory, indoors for the habit."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "Jewellery",
+    "part": "Part 1",
+    "instruction": "How often do you wear jewellery? [Why/Why not?]",
+    "response": "Rarely — a watch every day, and a ring for special occasions, which is about the limit of my commitment. I admire jewellery on other people far more than on myself. It is beautiful, but it is also one more thing to lose."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "Jewellery",
+    "part": "Part 1",
+    "instruction": "What type of jewellery do you like best? [Why/Why not?]",
+    "response": "Simple things — a plain band, a well-made watch, silver ahead of gold. Anything too elaborate starts wearing the person rather than the other way round. I would rather own one piece I never remove than a drawerful I never wear."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "Jewellery",
+    "part": "Part 1",
+    "instruction": "When do people like to give jewellery in your country [Why?]",
+    "response": "Weddings, anniversaries and milestone birthdays mainly — gold in particular, since it carries sentiment and a certain financial security at the same time. New parents often receive a small piece as a blessing. Few gifts are requested as openly, or inspected quite so carefully."
+  },
+  {
+    "header": "Cambridge 2020 (Test-4)",
+    "topic": "Jewellery",
+    "part": "Part 1",
+    "instruction": "Have you ever given jewellery to someone as a gift? [Why/Why not?]",
+    "response": "Once or twice, and each time I agonised far more than the occasion deserved. It is a present with weight — literally and emotionally — so it has to suit the relationship, not merely the wrist. I usually choose safer gifts and fewer sleepless nights."
   }
 ]

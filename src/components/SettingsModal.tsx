@@ -18,8 +18,9 @@ import {
   Brain,
   Zap,
 } from 'lucide-react';
-import { lumiVoice, TTSEngineMode } from '../utils/speech';
+import { serenVoice, TTSEngineMode } from '../utils/speech';
 import { getAutoMicEnabled, setAutoMicEnabled } from '../utils/preferences';
+import { ShortcutSettings } from './ShortcutSettings';
 
 interface ProviderStatus {
   key: string;
@@ -70,7 +71,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>(() => {
     // Read from localStorage if available, otherwise empty object
     try {
-      const stored = localStorage.getItem('lumi_model_selections');
+      const stored = localStorage.getItem('seren_model_selections');
       return stored ? JSON.parse(stored) : {};
     } catch {
       return {};
@@ -88,8 +89,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
   const [wiping, setWiping] = useState(false);
 
   const [voices, setVoices] = useState<TtsVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>(lumiVoice.getVoice() || 'en-US-JennyNeural');
-  const [ttsEngine, setTtsEngine] = useState<TTSEngineMode>(lumiVoice.getTtsEngine());
+  const [selectedVoice, setSelectedVoice] = useState<string>(serenVoice.getVoice() || 'en-US-JennyNeural');
+  const [ttsEngine, setTtsEngine] = useState<TTSEngineMode>(serenVoice.getTtsEngine());
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const [serverTtsOnline, setServerTtsOnline] = useState<boolean | null>(null);
 
@@ -148,13 +149,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       } catch (e) {}
     })();
     setServerTtsOnline(null);
-    void lumiVoice.checkServerTts().then(setServerTtsOnline);
+    void serenVoice.checkServerTts().then(setServerTtsOnline);
   }, [open, loadStatus, loadModelLists]);
 
   // Persist model selections to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('lumi_model_selections', JSON.stringify(selectedModels));
+      localStorage.setItem('seren_model_selections', JSON.stringify(selectedModels));
     } catch {
     }
   }, [selectedModels]);
@@ -182,7 +183,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     } catch (e) {}
     try {
       Object.keys(localStorage)
-        .filter((k) => k.startsWith('lumi_'))
+        .filter((k) => k.startsWith('seren_'))
         .forEach((k) => localStorage.removeItem(k));
       sessionStorage.clear();
     } catch (e) {}
@@ -237,10 +238,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
 
   const handleEngineChange = (mode: TTSEngineMode) => {
     setTtsEngine(mode);
-    lumiVoice.setTtsEngine(mode);
+    serenVoice.setTtsEngine(mode);
     if (mode === 'server') {
       setServerTtsOnline(null);
-      void lumiVoice.checkServerTts().then(setServerTtsOnline);
+      void serenVoice.checkServerTts().then(setServerTtsOnline);
     }
   };
 
@@ -251,7 +252,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: `Hi! I'm Lumi, your IELTS speaking coach. This is my ${voiceId.split('-')[2]} voice.`,
+          text: `Hi! I'm Seren, your IELTS speaking coach. This is my ${voiceId.split('-')[2]} voice.`,
           voice: voiceId,
         }),
       });
@@ -271,7 +272,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
 
   const applyVoice = (voiceId: string) => {
     setSelectedVoice(voiceId);
-    lumiVoice.setVoice(voiceId === 'en-US-JennyNeural' ? null : voiceId);
+    serenVoice.setVoice(voiceId === 'en-US-JennyNeural' ? null : voiceId);
   };
 
   return (
@@ -300,7 +301,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[#f8f8f2]">AI Engine Settings</h2>
-                  <p className="text-[11px] text-[#6272a4]">Configure Lumi's brain &amp; voice — all free, no paid APIs</p>
+                  <p className="text-[11px] text-[#6272a4]">Configure Seren's brain &amp; voice — all free, no paid APIs</p>
                 </div>
               </div>
               <button
@@ -487,7 +488,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 </div>
 
                 <p className="mt-2.5 text-[11px] text-[#6272a4] leading-relaxed">
-                  If every provider is offline, Lumi falls back to built-in rule-based responses so the app keeps working.
+                  If every provider is offline, Seren falls back to built-in rule-based responses so the app keeps working.
                 </p>
               </section>
 
@@ -495,18 +496,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-widest text-[#8be9fd] mb-3">Speech Processing</h3>
                 <div className="p-4 rounded-2xl border border-[#44475a] bg-[#21222c] space-y-3">
-                  <div className="flex items-center gap-3 p-3 rounded-xl border border-[#44475a] bg-[#282a36]">
-                    <div className="p-2 rounded-lg bg-[#50fa7b]/15 border border-[#50fa7b]/40">
-                      <Volume2 className="w-4 h-4 text-[#50fa7b]" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
-                        Neural TTS
-                        <span className="px-1.5 py-0.5 rounded-md bg-[#50fa7b]/15 text-[#50fa7b] text-[9px] font-bold">ACTIVE</span>
-                      </div>
-                      <div className="text-[10px] text-[#6272a4]">Microsoft Edge neural voices (MsEdgeTTS) — free, no API key</div>
-                    </div>
-                  </div>
                   <p className="text-[10px] text-[#6272a4] leading-relaxed">
                     Both engines run without API keys. Web Speech API is used as real-time fallback if Whisper is unavailable.
                   </p>
@@ -531,7 +520,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                           Automatic
                         </div>
                         <div className="text-[10px] text-[#6272a4] mt-1">
-                          Mic opens by itself after Lumi finishes each question
+                          Mic opens by itself after Seren finishes each question
                         </div>
                       </button>
                       <button
@@ -558,7 +547,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
 
               {/* Voice / TTS */}
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-widest text-[#8be9fd] mb-3">Lumi's Voice</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#8be9fd] mb-3">Seren's Voice</h3>
                 <div className="p-4 rounded-2xl border border-[#44475a] bg-[#21222c] space-y-4">
                   {/* Engine mode */}
                   <div className="grid grid-cols-2 gap-2">
@@ -630,13 +619,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 </div>
               </section>
 
+              {/* Keyboard Shortcuts */}
+              <ShortcutSettings />
+
               {/* Danger Zone */}
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff5555] mb-3">Danger Zone</h3>
                 <div className="p-4 rounded-2xl border border-[#ff5555]/40 bg-[#ff5555]/10 space-y-3">
                   <p className="text-[11px] text-[#f8f8f2]/80 leading-relaxed">
                     Erases <strong>everything</strong>: your profile, diagnostic results, lesson progress, and every AI
-                    preference (custom endpoints, API keys, models, voices). Lumi restores factory defaults and restarts
+                    preference (custom endpoints, API keys, models, voices). Seren restores factory defaults and restarts
                     from the very beginning.
                   </p>
                   {!confirmingWipe ? (

@@ -1,6 +1,6 @@
 /**
  * Greeting scripts — gathered into this single module so no duplicate welcome
- * strings are in-lined across the app. Import these helpers anywhere Lumi
+ * strings are in-lined across the app. Import these helpers anywhere Seren
  * speaks or shows a welcome message instead of pasting the text by hand.
  *
  * Every helper returns the exact same text that used to be scattered inline so
@@ -32,7 +32,7 @@ export function cambridgeGreeting(nickname: string): string {
 }
 
 // ---- Cambridge test — per-question spoken variety ---------------------------
-// Repeating the same opener/closing on every question sounds robotic, so Lumi
+// Repeating the same opener/closing on every question sounds robotic, so Seren
 // rotates natural examiner lines instead. Selection is index-based (matched to
 // the question's position within its part) so the spoken text stays stable and
 // replayable for any given question while still differing between questions.
@@ -93,11 +93,11 @@ export function cambridgeQuestionClosing(part: 1 | 2 | 3, partQuestionIndex: num
  * Lesson studio — opening line when entering a roadmap module.
  *
  * Displayed text STOPS at "Let's master this concept." — the practice prompt
- * itself is never shown in Lumi's speech box (it already has its own
+ * itself is never shown in Seren's speech box (it already has its own
  * "Interactive Drill Prompt" panel on screen). Use lessonModuleIntroSpeech for
- * the version Lumi reads ALOUD, which includes the prompt.
+ * the version Seren reads ALOUD, which includes the prompt.
  *
- * Follow-up questions Lumi asks in her replies are unaffected — they come from
+ * Follow-up questions Seren asks in her replies are unaffected — they come from
  * the chat API and are always kept.
  */
 export function lessonModuleIntro(moduleTitle: string, nickname: string): string {

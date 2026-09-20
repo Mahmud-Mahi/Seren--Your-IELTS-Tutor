@@ -98,7 +98,7 @@ const MODEL_COOLDOWN_MS = 10 * 60 * 1000;
 const MAX_MODELS_PER_PROVIDER = 3;
 
 // Providers that must NEVER be used in the automatic cascade. They remain
-// fully available when explicitly pinned (Settings / x-lumi-provider).
+// fully available when explicitly pinned (Settings / x-seren-provider).
 export const EXCLUDED_FROM_AUTO_CASCADE = new Set<string>(['ollama']);
 
 const EXCLUDED_MODEL_PATTERNS = /embed|whisper|tts|rerank|image|clip|guard|moderation|flux|stable|sd3|dall/i;
@@ -216,7 +216,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<{ text: string; pro
   for (const provider of providers) {
     if (pinned && provider.key !== pinned) continue;
     // Ollama is excluded from the AUTO cascade entirely — it is only used
-    // when explicitly pinned via Settings or x-lumi-provider header
+    // when explicitly pinned via Settings or x-seren-provider header
     if (!pinned && EXCLUDED_FROM_AUTO_CASCADE.has(provider.key)) continue;
     if (provider.key === 'groq' && !provider.apiKey) {
       lastError = new Error('Groq API key not configured');

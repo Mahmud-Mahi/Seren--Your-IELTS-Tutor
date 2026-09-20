@@ -115,14 +115,14 @@ export function generateNoSpeechEvaluation(userProfile: any) {
       'Answer Part 1 with 3-5 sentences about familiar topics',
       'Use the Part 2 prep minute to jot ideas, then talk continuously'
     ],
-    examinerCommentary: `${label}: no measurable speech was captured for this criterion. Retake the diagnostic and answer out loud so Lumi has real language to assess.`,
+    examinerCommentary: `${label}: no measurable speech was captured for this criterion. Retake the diagnostic and answer out loud so Seren has real language to assess.`,
   });
 
   return {
     overallCEFR: 'A2',
     predictedIeltsBand: 4.0,
     cefrDescriptor: 'Insufficient Speech Sample — No Score',
-    executiveSummary: `${nickname}, I couldn't hear enough speech to assess your English — all three parts came through empty or nearly empty. Nothing was scored here; this is not a reflection of your ability. Retake the diagnostic, speak loudly into the microphone, and answer each part for its full time. Lumi will then give you a real, meaningful band.`,
+    executiveSummary: `${nickname}, I couldn't hear enough speech to assess your English — all three parts came through empty or nearly empty. Nothing was scored here; this is not a reflection of your ability. Retake the diagnostic, speak loudly into the microphone, and answer each part for its full time. Seren will then give you a real, meaningful band.`,
     pillars: {
       fluency: noSpeechPillar('Fluency'),
       lexical: noSpeechPillar('Lexical Resource'),
@@ -163,7 +163,7 @@ export function generateFallbackEvaluation(userProfile: any, responses: any[], s
     overallCEFR,
     predictedIeltsBand: predictedBand,
     cefrDescriptor: overallCEFR === 'C1' ? 'Effective Operational Proficiency' : overallCEFR === 'B2' ? 'Independent Fluency with Strong Foundations' : 'Developing Conversational Competence',
-    executiveSummary: `Great effort, ${nickname}! Lumi has carefully analyzed your spoken responses across all three diagnostic tasks. You demonstrate clear ideas and good communicative intent. To push towards your target of Band ${targetBand}, our focus will be expanding idiomatic collocations and using sophisticated discourse markers to eliminate hesitation in Part 2 and Part 3.`,
+    executiveSummary: `Great effort, ${nickname}! Seren has carefully analyzed your spoken responses across all three diagnostic tasks. You demonstrate clear ideas and good communicative intent. To push towards your target of Band ${targetBand}, our focus will be expanding idiomatic collocations and using sophisticated discourse markers to eliminate hesitation in Part 2 and Part 3.`,
     pillars: {
       fluency: {
         score: predictedBand - 0.5 > 4.5 ? predictedBand - 0.5 : 5.0,

@@ -63,7 +63,7 @@ async function startServer() {
       .filter((p) => !EXCLUDED_FROM_AUTO_CASCADE.has(p.key))
       .map((p) => p.key)
       .join(' -> ');
-    console.log(`Lumi — Your IELTS Tutor server running on http://localhost:${PORT}`);
+    console.log(`Seren — Your IELTS Tutor server running on http://localhost:${PORT}`);
     console.log(`(also reachable on your LAN at http://<your-ip>:${PORT})`);
     console.log(`LLM provider cascade: ${providers}`);
     console.log(`Auto cascade (no pin): ${effectiveAuto} — ollama only when explicitly selected`);
@@ -93,13 +93,13 @@ async function startServer() {
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`\n${signal} received — stopping Lumi and releasing port ${PORT}…`);
+    console.log(`\n${signal} received — stopping Seren and releasing port ${PORT}…`);
     try {
       void viteInstance?.close();
     } catch (e) {}
     for (const socket of openSockets) socket.destroy();
     server.close(() => {
-      console.log('Lumi stopped — port released.');
+      console.log('Seren stopped — port released.');
       process.exit(0);
     });
     setTimeout(() => process.exit(0), 3000).unref();

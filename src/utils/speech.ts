@@ -1,6 +1,19 @@
 /**
- * Audio synthesis, speech recognition, and sound effects for Lumi
+ * Audio synthesis, speech recognition, and sound effects for Seren
  */
+
+import { cleanSpeechText } from './textClean';
+
+/**
+ * Progress of the utterance currently playing, used for the reading-along
+ * highlight (Cambridge Solutions). `progress` is 0..1 through the utterance
+ * and `speaking` is only true while audio is actually audible — so consumers
+ * clear their highlight during the silent gaps between turns.
+ */
+export interface SpeechProgressUpdate {
+  progress: number;
+  speaking: boolean;
+}
 
 // Sound effect synthesizer using Web Audio API
 class SoundFX {
@@ -119,14 +132,18 @@ class SpeechEngine {
   // awaiting it never hangs.
   private activeServerSettle: ((result: boolean) => void) | null = null;
 
+  // Reading-along progress clock (see SpeechProgressUpdate above).
+  private progressListeners = new Set<(update: SpeechProgressUpdate) => void>();
+  private progressTimer: any = null;
+
   constructor() {
     if (typeof window !== 'undefined') {
       try {
-        const storedEngine = localStorage.getItem('lumi_tts_engine');
+        const storedEngine = localStorage.getItem('seren_tts_engine');
         if (storedEngine === 'server' || storedEngine === 'browser') {
           this.ttsEngine = storedEngine;
         }
-        const storedVoice = localStorage.getItem('lumi_tts_voice');
+        const storedVoice = localStorage.getItem('seren_tts_voice');
         if (storedVoice) this.ttsVoice = storedVoice;
       } catch (e) {}
     }
@@ -154,7 +171,7 @@ class SpeechEngine {
   public setTtsEngine(mode: TTSEngineMode) {
     this.ttsEngine = mode;
     try {
-      localStorage.setItem('lumi_tts_engine', mode);
+      localStorage.setItem('seren_tts_engine', mode);
     } catch (e) {}
     this.stop();
     // Re-allow server attempts after a manual switch
@@ -168,9 +185,9 @@ class SpeechEngine {
     this.ttsVoice = voice;
     try {
       if (voice) {
-        localStorage.setItem('lumi_tts_voice', voice);
+        localStorage.setItem('seren_tts_voice', voice);
       } else {
-        localStorage.removeItem('lumi_tts_voice');
+        localStorage.removeItem('seren_tts_voice');
       }
     } catch (e) {}
   }
@@ -203,6 +220,9 @@ class SpeechEngine {
     const settle = this.activeServerSettle;
     this.activeServerSettle = null;
     try { settle?.(true); } catch (e) {}
+    // Drop the progress clock silently — the caller emits the "stopped"
+    // signal when the utterance is genuinely over (stop / onended).
+    this.stopProgressLoop(false);
     if (this.audioEl) {
       // Detach handlers FIRST: clearing src can fire an 'error' event whose
       // stale finish()/onEnd would otherwise cut short newer speech gates
@@ -245,7 +265,7 @@ class SpeechEngine {
         body: JSON.stringify({
           text: cleanedText,
           // Per-utterance voice override (e.g. the fixed male examiner voice in
-          // the Cambridge Solutions tab); falls back to the configured Lumi voice.
+          // the Cambridge Solutions tab); falls back to the configured Seren voice.
           voice: (typeof options?.voice === 'string' && options.voice.trim()) || this.ttsVoice || undefined,
           rate: typeof options?.rate === 'number' ? options.rate : 1,
           pitch: typeof options?.pitch === 'number' ? options.pitch : 1.06,
@@ -307,6 +327,7 @@ class SpeechEngine {
         }
         this.isSpeaking = false;
         this.currentSpeakingText = '';
+        this.stopProgressLoop();
         this.activeServerSettle?.(true);
       };
       audio.onerror = () => {
@@ -330,6 +351,9 @@ class SpeechEngine {
         resolve();
         return true;
       }
+
+      // Real playback started — drive the reading highlight off the audio clock.
+      this.startProgressLoop(cleanedText, typeof options?.rate === 'number' ? options.rate : 1, true);
 
       const ok = await done;
       this.activeServerSettle = null;
@@ -467,11 +491,9 @@ class SpeechEngine {
   }
 
   private async dispatchSpeak(text: string, options: any, resolve: () => void, gen: number) {
-    const cleaned = (text || '')
-      .replace(/[*_#`~]/g, '')
-      .replace(/\[.*?\]/g, '')
-      .replace(/\(.*?\)/g, '')
-      .trim();
+    // Markdown, bracketed asides and emoji are never spoken (emoji would be
+    // read out loud by the neural voice). See src/utils/textClean.ts.
+    const cleaned = cleanSpeechText(text);
 
     if (!cleaned || this.isStale(gen)) {
       this.isSpeaking = false;
@@ -582,12 +604,8 @@ class SpeechEngine {
       this.loadVoices();
     }
 
-    // Clean up markdown formatting for clear spoken output
-    const cleanedText = text
-      .replace(/[*_#`~]/g, '')
-      .replace(/\[.*?\]/g, '')
-      .replace(/\(.*?\)/g, '')
-      .trim();
+    // Clean up markdown formatting + emoji for clear spoken output
+    const cleanedText = cleanSpeechText(text);
 
     if (this.isSpeaking && this.currentSpeakingText === cleanedText) {
       // Already speaking this exact phrase, do not cancel or restart
@@ -615,6 +633,7 @@ class SpeechEngine {
           this.currentSpeakingText = cleanedText;
           this.queuedSpeakTask = null; // Successfully started
           this.startKeepAlive();
+          this.startProgressLoop(cleanedText, utterance.rate || 1, false);
           options?.onStart?.();
         };
 
@@ -622,6 +641,7 @@ class SpeechEngine {
           this.isSpeaking = false;
           this.currentSpeakingText = '';
           this.stopKeepAlive();
+          this.stopProgressLoop();
           options?.onEnd?.();
           resolve();
         };
@@ -631,6 +651,7 @@ class SpeechEngine {
           this.isSpeaking = false;
           this.currentSpeakingText = '';
           this.stopKeepAlive();
+          this.stopProgressLoop();
           options?.onEnd?.();
           resolve();
         };
@@ -678,15 +699,78 @@ class SpeechEngine {
     }
     this.isSpeaking = false;
     this.currentSpeakingText = '';
+    // Tell the reading highlight that nothing is being spoken any more.
+    this.stopProgressLoop();
   }
 
   getIsSpeaking(): boolean {
     const audioActive = Boolean(this.audioEl && !this.audioEl.paused && !this.audioEl.ended);
     return this.isSpeaking || audioActive || (this.synth ? this.synth.speaking : false);
   }
+
+  // ---------------------------------------------------------------------------
+  // Reading-along progress (Cambridge Solutions highlight)
+  // ---------------------------------------------------------------------------
+
+  /** Subscribe to the progress clock of whatever is being spoken right now. */
+  public subscribeSpeechProgress(listener: (update: SpeechProgressUpdate) => void): () => void {
+    this.progressListeners.add(listener);
+    return () => {
+      this.progressListeners.delete(listener);
+    };
+  }
+
+  private emitSpeechProgress(progress: number, speaking: boolean) {
+    const clamped = Math.min(1, Math.max(0, progress));
+    for (const listener of Array.from(this.progressListeners)) {
+      try {
+        listener({ progress: clamped, speaking });
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Starts ticking progress for one utterance.
+   *
+   * The neural (server) engine plays a single <audio> blob, so progress is read
+   * straight off its `currentTime`/`duration`. The browser engine exposes no
+   * such clock, so elapsed wall time over an estimated duration is used instead
+   * — accurate enough to drive a reading highlight.
+   */
+  private startProgressLoop(text: string, rate: number, useAudioClock: boolean) {
+    this.stopProgressLoop(false);
+    const startedAt = Date.now();
+    const estimatedMs = this.estimateUtteranceMs(text, rate);
+    this.emitSpeechProgress(0, true);
+    this.progressTimer = setInterval(() => {
+      if (useAudioClock) {
+        const audio = this.audioEl;
+        if (audio && isFinite(audio.duration) && audio.duration > 0) {
+          this.emitSpeechProgress(audio.currentTime / audio.duration, true);
+          return;
+        }
+      }
+      this.emitSpeechProgress((Date.now() - startedAt) / estimatedMs, true);
+    }, 80);
+  }
+
+  private stopProgressLoop(emitStopped = true) {
+    if (this.progressTimer) {
+      clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
+    if (emitStopped) this.emitSpeechProgress(0, false);
+  }
+
+  /** Rough spoken length of a line, used when no audio clock is available. */
+  private estimateUtteranceMs(text: string, rate = 1): number {
+    const words = (text.match(/[A-Za-z0-9']+/g) || []).length || 1;
+    const wordsPerMinute = 165 * (rate > 0 ? rate : 1);
+    return Math.max(1200, (words / wordsPerMinute) * 60000);
+  }
 }
 
-export const lumiVoice = new SpeechEngine();
+export const serenVoice = new SpeechEngine();
 
 export interface SpeechLocaleOption {
   code: string;

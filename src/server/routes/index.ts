@@ -14,7 +14,7 @@ import { registerLessonRoutes } from './lesson';
  *  - tts.ts          /api/tts (GET+POST), /api/tts/voices
  *  - stt.ts          /api/transcribe-audio, /api/stt/status, /api/stt/test
  *  - evaluation.ts   /api/evaluate-speech, /api/evaluate-practice
- *  - lesson.ts       /api/lumi-chat, /api/generate-lesson-drill
+ *  - lesson.ts       /api/seren-chat, /api/generate-lesson-drill
  */
 export function registerRoutes(app: express.Express): void {
   registerSystemRoutes(app);

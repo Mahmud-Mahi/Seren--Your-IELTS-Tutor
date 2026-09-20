@@ -2,6 +2,7 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { pipeline, type Readable } from 'stream';
 import type { Response } from 'express';
 import { runtimeConfig } from './config';
+import { cleanSpeechText } from '../utils/textClean';
 
 // ---------------------------------------------------------------------------
 // msedge-tts hardening — late WebSocket frames must never kill the server
@@ -35,7 +36,7 @@ for (const methodName of ['_pushAudioData', '_pushMetadata']) {
 // ---------------------------------------------------------------------------
 
 export const TTS_VOICES: { id: string; name: string; locale: string; gender: string; personality: string }[] = [
-  { id: 'en-US-JennyNeural', name: 'Jenny', locale: 'en-US', gender: 'Female', personality: 'Warm, friendly & conversational (recommended for Lumi)' },
+  { id: 'en-US-JennyNeural', name: 'Jenny', locale: 'en-US', gender: 'Female', personality: 'Warm, friendly & conversational (recommended for Seren)' },
   { id: 'en-US-AriaNeural', name: 'Aria', locale: 'en-US', gender: 'Female', personality: 'Professional, confident' },
   { id: 'en-US-MichelleNeural', name: 'Michelle', locale: 'en-US', gender: 'Female', personality: 'Calm, clear' },
   { id: 'en-US-AvaNeural', name: 'Ava', locale: 'en-US', gender: 'Female', personality: 'Youthful, expressive' },
@@ -71,13 +72,10 @@ function escapeXml(text: string): string {
 }
 
 export function cleanTextForTts(text: string): string {
-  return text
-    .replace(/[*_#`~]/g, '')
-    .replace(/\[.*?\]/g, '')
-    .replace(/\(.*?\)/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 3000);
+  // Shared with the browser engine (src/utils/textClean.ts): markdown, bracketed
+  // asides and EMOJI are removed — the neural voices would otherwise happily
+  // read "🎉" out loud as "party popper" in the middle of a sentence.
+  return cleanSpeechText(text).slice(0, 3000);
 }
 
 const TTS_SYNTHESIS_TIMEOUT_MS = 8000;

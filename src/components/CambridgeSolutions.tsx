@@ -10,15 +10,17 @@ import {
   CheckCircle,
   BookOpen,
 } from 'lucide-react';
-import { UserProfile, DiagnosticQuestion, LumiMood } from '../types';
+import { UserProfile, DiagnosticQuestion, SerenMood } from '../types';
 import {
   CAMBRIDGE_TESTS,
   getCambridgeTestById,
   CambridgeTestDefinition,
 } from '../data/cambridgeTests';
-import { LumiAvatar } from './LumiAvatar';
-import { lumiVoice, soundFX } from '../utils/speech';
+import { SerenAvatar } from './SerenAvatar';
+import { serenVoice, soundFX } from '../utils/speech';
 import { ScrollArea } from './ScrollArea';
+import { SpokenText } from './SpokenText';
+import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 
 interface CambridgeSolutionsProps {
   userProfile: UserProfile;
@@ -31,7 +33,7 @@ interface CambridgeSolutionsProps {
  *
  * A live Q&A class built on the Cambridge question bank. A MALE neural voice
  * (the examiner) reads every question aloud — the question shows up in the
- * question div — then Lumi answers like an IELTS examinee by speaking the
+ * question div — then Seren answers like an IELTS examinee by speaking the
  * Band 8+ sample answer from the question bank, which is shown below the
  * question. After a short pause the examiner asks the next question and the
  * loop continues until the last question & response of the topic. Every topic
@@ -40,11 +42,11 @@ interface CambridgeSolutionsProps {
  */
 
 // Fixed male neural voice for the examiner (IELTS-style British examiner).
-// Lumi's answers keep the app's configured voice so the two roles stay
+// Seren's answers keep the app's configured voice so the two roles stay
 // audibly distinct.
 const EXAMINER_VOICE = 'en-GB-RyanNeural';
 
-// Breathing room: examiner → Lumi's answer, and answer → next question.
+// Breathing room: examiner → Seren's answer, and answer → next question.
 const TURN_PAUSE_MS = 2500;
 
 const PART_TITLES: Record<number, string> = {
@@ -78,7 +80,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   const [activeTopicKey, setActiveTopicKey] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentQIndex, setCurrentQIndex] = useState(-1);
-  const [currentSpeaker, setCurrentSpeaker] = useState<'examiner' | 'lumi' | null>(null);
+  const [currentSpeaker, setCurrentSpeaker] = useState<'examiner' | 'seren' | null>(null);
   const [finishedTopics, setFinishedTopics] = useState<Record<string, boolean>>({});
 
   // The playback loop lives in refs so the async session never closes over
@@ -109,7 +111,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   const topicKeyOf = (topic: string) => `${selectedTest?.id || 'test'}::${activePart}::${topic}`;
 
   // The per-part cue tips (identical for every question of the part) — shown
-  // in the "What to notice" box directly under Lumi's speech box.
+  // in the "What to notice" box directly under Seren's speech box.
   const partCueTips: string[] = useMemo(
     () => (selectedTest?.questions || []).find((q) => q.part === activePart)?.cueTips || [],
     [selectedTest, activePart]
@@ -124,16 +126,16 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       genRef.current++;
       activeTopicRef.current = null;
       pausedRef.current = false;
-      lumiVoice.stop();
+      serenVoice.stop();
     };
   }, []);
 
-  // Lumi greets the user out loud when the tab opens — explaining the flow
+  // Seren greets the user out loud when the tab opens — explaining the flow
   // by voice instead of only showing it in the speech box. Starting a session
-  // (which calls lumiVoice.stop()) or leaving the tab cuts it off cleanly.
+  // (which calls serenVoice.stop()) or leaving the tab cuts it off cleanly.
   useEffect(() => {
     if (!voiceEnabled) return;
-    void lumiVoice.speak(
+    void serenVoice.speak(
       `Hey ${userProfile.nickname}! Pick a topic below and press Play — the examiner asks, I answer, and you pick up the phrasing, pacing and idea.`
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,7 +155,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     genRef.current++;
     activeTopicRef.current = null;
     pausedRef.current = false;
-    lumiVoice.stop();
+    serenVoice.stop();
     resetPlaybackUi();
   };
 
@@ -196,7 +198,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         await waitWhilePaused(gen, topicKey);
         continue;
       }
-      await lumiVoice.speak(text, { voice });
+      await serenVoice.speak(text, { voice });
       if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
       if (pausedRef.current) continue; // paused during the turn → replay it
       return;
@@ -216,7 +218,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     setFinishedTopics((prev) => ({ ...prev, [topicKey]: false }));
     setCurrentQIndex(-1);
     setCurrentSpeaker(null);
-    lumiVoice.stop();
+    serenVoice.stop();
     soundFX.playChime('start');
 
     for (let i = 0; i < questions.length; i++) {
@@ -232,9 +234,9 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       await speakTurn(EXAMINER_VOICE, q.question, gen, topicKey);
       if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
 
-      // 2. A little pause, then Lumi reads the sample answer from the bank.
+      // 2. A little pause, then Seren reads the sample answer from the bank.
       if (!(await holdGap(TURN_PAUSE_MS, gen, topicKey))) return;
-      setCurrentSpeaker('lumi');
+      setCurrentSpeaker('seren');
       await speakTurn(
         undefined,
         q.sampleAnswer?.trim() || 'Let me gather my thoughts for a moment.',
@@ -248,7 +250,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     }
 
     if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
-    lumiVoice.stop();
+    serenVoice.stop();
     activeTopicRef.current = null;
     setFinishedTopics((prev) => ({ ...prev, [topicKey]: true }));
     resetPlaybackUi();
@@ -265,7 +267,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       } else {
         // Pause — cut the current utterance; the loop replays it on resume.
         pausedRef.current = true;
-        lumiVoice.stop();
+        serenVoice.stop();
         setIsPlaying(false);
       }
       return;
@@ -277,6 +279,30 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     if (activeTopicRef.current !== topicKey) return;
     stopAll();
   };
+
+  // ---------------------------------------------------------------------------
+  // Keyboard shortcuts (bindings are user-customizable in Settings)
+  // ---------------------------------------------------------------------------
+  const pauseShortcutHint = useShortcutHint('solutions.playPause');
+
+  // Pause / resume the running session. With nothing running, the shortcut
+  // starts the first topic of the current part so the whole tab is playable
+  // from the keyboard alone.
+  useShortcut('solutions.playPause', () => {
+    if (!voiceEnabled) return;
+    const activeKey = activeTopicRef.current;
+    if (activeKey) {
+      const activeGroup = topics.find((group) => topicKeyOf(group.topic) === activeKey);
+      if (activeGroup) handlePlayPause(activeKey, activeGroup.questions);
+      return;
+    }
+    const first = topics[0];
+    if (first && first.questions.length > 0) handlePlayPause(topicKeyOf(first.topic), first.questions);
+  });
+
+  useShortcut('solutions.stop', () => {
+    if (activeTopicRef.current) stopAll();
+  });
 
   const handleSelectTest = (id: string) => {
     stopAll();
@@ -294,7 +320,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   // session too (the play button is also disabled while muted).
   useEffect(() => {
     if (!voiceEnabled) {
-      lumiVoice.stop();
+      serenVoice.stop();
       if (activeTopicRef.current) {
         stopAll();
       }
@@ -309,10 +335,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   }, [activeTopicKey, currentQIndex]);
 
   // ---------------------------------------------------------------------------
-  // Derived stage state for the Lumi avatar
+  // Derived stage state for the Seren avatar
   // ---------------------------------------------------------------------------
-  const stageMood: LumiMood = activeTopicKey
-    ? currentSpeaker === 'lumi' && isPlaying
+  const stageMood: SerenMood = activeTopicKey
+    ? currentSpeaker === 'seren' && isPlaying
       ? 'speaking'
       : 'encouraging'
     : 'greeting';
@@ -331,7 +357,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         : 'Resume the session'
       : isDone
       ? 'Replay this topic'
-      : 'Play this topic — examiner asks, Lumi answers live';
+      : 'Play this topic — examiner asks, Seren answers live';
 
   return (
     <div className="w-full max-w-6xl mx-auto flex flex-col flex-1 min-h-0 space-y-3 sm:space-y-4">
@@ -344,10 +370,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
           </div>
           <div className="min-w-0">
             <h2 className="text-base font-bold text-[#f8f8f2] leading-tight">
-              Cambridge Solutions <span className="text-[#8be9fd]">·</span> Live with Lumi
+              Cambridge Solutions <span className="text-[#8be9fd]">·</span> Live with Seren
             </h2>
             <p className="text-xs text-[#6272a4] mt-0.5 truncate">
-              Part {activePart}: {PART_TITLES[activePart]} — examiner asks, Lumi answers live
+              Part {activePart}: {PART_TITLES[activePart]} — examiner asks, Seren answers live
             </p>
           </div>
         </div>
@@ -387,16 +413,16 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         </div>
       </div>
 
-      {/* Main grid: Lumi stage + the part's scroll area */}
+      {/* Main grid: Seren stage + the part's scroll area */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch flex-1 min-h-0">
-        {/* Lumi stage (4 cols) — height-capped to match the Q&A session */}
+        {/* Seren stage (4 cols) — height-capped to match the Q&A session */}
         <div className="lg:col-span-4 flex flex-col min-h-0 lg:max-h-[calc(100dvh-9rem)]">
-          {/* Lumi avatar section */}
+          {/* Seren avatar section */}
           <div className="shrink-0">
-            <LumiAvatar
+            <SerenAvatar
               mood={stageMood}
               currentSpeech={stageSubtitle}
-              speaking={!!activeTopicKey && isPlaying && currentSpeaker === 'lumi'}
+              speaking={!!activeTopicKey && isPlaying && currentSpeaker === 'seren'}
               isUserSpeaking={false}
               voiceEnabled={voiceEnabled}
               onToggleVoice={onToggleVoice}
@@ -405,7 +431,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
             />
           </div>
 
-          {/* The "What to notice" box, directly under Lumi's speech box */}
+          {/* The "What to notice" box, directly under Seren's speech box */}
           {partCueTips.length > 0 && (
             <div className="mt-3 shrink-0 flex items-start gap-2 rounded-xl bg-[#ffb86c]/10 border border-[#ffb86c]/30 p-3">
               <Lightbulb className="w-4 h-4 text-[#ffb86c] shrink-0 mt-0.5" />
@@ -429,7 +455,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
           {/* Right column (8 cols) — the Q&A session fills the page height */}
           <div className="lg:col-span-8 flex flex-col min-h-0 min-w-0 lg:max-h-[calc(100dvh-9rem)]">
             {/* Scroll area: every topic of this part, with all Q&As at once.
-                Height stretches to match the Lumi column on the left so both
+                Height stretches to match the Seren column on the left so both
                 columns end at the same line and the right column is fully used. */}
             <ScrollArea className="flex-1 min-h-0 pr-2 pb-4 space-y-5 rounded-2xl">
               {topics.length === 0 && (
@@ -472,8 +498,17 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                           {group.topic}
                         </h3>
                         <p className="text-[11px] text-[#6272a4] mt-0.5">
-                          {group.questions.length} question{group.questions.length !== 1 ? 's' : ''} ·
-                          examiner asks, Lumi answers live
+                          {isActive
+                            ? `Question ${Math.min(currentQIndex + 1, group.questions.length)} of ${group.questions.length} · ${
+                                isPlaying
+                                  ? currentSpeaker === 'examiner'
+                                    ? 'examiner is asking…'
+                                    : currentSpeaker === 'seren'
+                                    ? 'Seren is answering…'
+                                    : 'getting ready…'
+                                  : 'paused'
+                              }`
+                            : `${group.questions.length} question${group.questions.length !== 1 ? 's' : ''} · examiner asks, Seren answers live`}
                         </p>
                       </div>
 
@@ -487,7 +522,9 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                           type="button"
                           onClick={() => handlePlayPause(topicKey, group.questions)}
                           disabled={!voiceEnabled || group.questions.length === 0}
-                          title={playButtonTitle(isActive, isDone)}
+                          title={`${playButtonTitle(isActive, isDone)}${
+                            pauseShortcutHint ? ` (${pauseShortcutHint})` : ''
+                          }`}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:pointer-events-none ${
                             isActive && isPlaying
                               ? 'bg-[#ffb86c]/15 border border-[#ffb86c]/50 text-[#ffb86c] hover:bg-[#ffb86c]/25'
@@ -515,36 +552,6 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                         )}
                       </div>
                     </div>
-
-                    {/* Live status strip while the session runs */}
-                    {isActive && (
-                      <div
-                        className={`px-4 sm:px-5 py-2.5 flex items-center gap-2 border-b text-xs font-semibold ${
-                          isPlaying
-                            ? 'bg-[#bd93f9]/10 border-[#bd93f9]/30'
-                            : 'bg-[#ffb86c]/10 border-[#ffb86c]/30'
-                        }`}
-                      >
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            isPlaying ? 'bg-[#50fa7b] animate-pulse' : 'bg-[#ffb86c]'
-                          }`}
-                        />
-                        <span className={isPlaying ? 'text-[#f8f8f2]' : 'text-[#ffb86c]'}>
-                          {!isPlaying
-                            ? 'Paused — press Resume to continue where you left off'
-                            : currentSpeaker === 'examiner'
-                            ? 'Examiner is asking the question…'
-                            : currentSpeaker === 'lumi'
-                            ? 'Lumi is answering — listen to the pacing, linking words & fluency'
-                            : 'Getting ready…'}
-                        </span>
-                        <span className="ml-auto font-mono text-[10px] text-[#6272a4]">
-                          Question {Math.min(currentQIndex + 1, group.questions.length)} of{' '}
-                          {group.questions.length}
-                        </span>
-                      </div>
-                    )}
 
                     {/* Every question of the topic with its sample answer below */}
                     <div className="p-4 sm:p-5 space-y-4">
@@ -582,7 +589,12 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-sm text-[#f8f8f2] leading-relaxed">{q.question}</p>
+                                <p className="text-sm text-[#f8f8f2] leading-relaxed">
+                                  <SpokenText
+                                    text={q.question}
+                                    spoken={rowActive && isPlaying && currentSpeaker === 'examiner'}
+                                  />
+                                </p>
                               </div>
                             </div>
 
@@ -590,7 +602,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                             <div className="flex items-start gap-2.5 p-3 pt-0">
                               <span
                                 className={`shrink-0 mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center border transition-colors ${
-                                  rowActive && currentSpeaker === 'lumi'
+                                  rowActive && currentSpeaker === 'seren'
                                     ? 'bg-[#ff79c6] text-[#282a36] border-[#ff79c6]'
                                     : 'bg-[#ff79c6]/15 text-[#ff79c6] border-[#ff79c6]/40'
                                 }`}
@@ -600,9 +612,9 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 mb-0.5">
                                   <p className="text-[10px] font-bold uppercase tracking-wider text-[#ff79c6]">
-                                    Lumi — Sample Answer
+                                    Seren — Sample Answer
                                   </p>
-                                  {rowActive && isPlaying && currentSpeaker === 'lumi' && (
+                                  {rowActive && isPlaying && currentSpeaker === 'seren' && (
                                     <span className="px-1.5 py-0.5 rounded bg-[#ff79c6]/20 text-[#ff79c6] text-[9px] font-bold uppercase tracking-wider animate-pulse">
                                       Answering now
                                     </span>
@@ -614,7 +626,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                                   )}
                                 </div>
                                 <p className="text-sm text-[#f8f8f2]/85 leading-relaxed">
-                                  {q.sampleAnswer || '—'}
+                                  <SpokenText
+                                    text={q.sampleAnswer || '—'}
+                                    spoken={rowActive && isPlaying && currentSpeaker === 'seren'}
+                                  />
                                 </p>
                               </div>
                             </div>

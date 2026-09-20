@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { LumiMood } from '../types';
+import type { SerenMood } from '../types';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  LUMI MOOD SYSTEM — single source of truth for the whole app.
+ *  SEREN MOOD SYSTEM — single source of truth for the whole app.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  *  Mood rules (apply EVERYWHERE — chat, lessons, diagnostics):
@@ -11,8 +11,8 @@ import type { LumiMood } from '../types';
  *  ┌──────────────┬─────────────────────────────────────────────────────────┐
  *  │ Mood         │ When it appears                                        │
  *  ├──────────────┼─────────────────────────────────────────────────────────┤
- *  │ greeting     │ Lumi greets the user (session start, welcome message)  │
- *  │ speaking     │ Lumi is replying / asking a question / ready — NEVER   │
+ *  │ greeting     │ Seren greets the user (session start, welcome message)  │
+ *  │ speaking     │ Seren is replying / asking a question / ready — NEVER   │
  *  │              │ implies the microphone                                 │
  *  │ listening    │ The microphone is open — from the moment it opens      │
  *  │              │ until the moment it closes. Mic-driven ONLY.           │
@@ -25,12 +25,12 @@ import type { LumiMood } from '../types';
  *  it is derived automatically from the microphone lifecycle.
  */
 
-export type { LumiMood } from '../types';
+export type { SerenMood } from '../types';
 
 /** When each mood applies — the authoritative rule table. */
-export const MOOD_RULES: Record<LumiMood, string> = {
-  greeting: 'Lumi greets the user (session start, welcome message)',
-  speaking: 'Lumi is replying, asking a question, or ready — never implies the mic',
+export const MOOD_RULES: Record<SerenMood, string> = {
+  greeting: 'Seren greets the user (session start, welcome message)',
+  speaking: 'Seren is replying, asking a question, or ready — never implies the mic',
   listening: 'The microphone is open, from the moment it opens until it closes',
   encouraging: 'The user shared something difficult or needs support',
   celebrating: 'Good news, achievements, completed drills',
@@ -38,17 +38,17 @@ export const MOOD_RULES: Record<LumiMood, string> = {
 };
 
 /** Status-bar text shown on the avatar for each mood. */
-export const MOOD_STATUS_TEXT: Record<LumiMood, string> = {
-  greeting: 'Lumi is welcoming you',
-  speaking: 'Lumi is speaking...',
-  listening: 'Lumi is listening carefully...',
-  encouraging: 'Lumi is cheering you on!',
-  evaluating: 'Lumi is analyzing your performance...',
+export const MOOD_STATUS_TEXT: Record<SerenMood, string> = {
+  greeting: 'Seren is welcoming you',
+  speaking: 'Seren is speaking...',
+  listening: 'Seren is listening carefully...',
+  encouraging: 'Seren is cheering you on!',
+  evaluating: 'Seren is analyzing your performance...',
   celebrating: 'Outstanding progress!',
 };
 
 /** Accent colors per mood (rings / badges / glows on the avatar). */
-export const MOOD_STYLES: Record<LumiMood, { ring: string; badge: string; glow: string; color: string }> = {
+export const MOOD_STYLES: Record<SerenMood, { ring: string; badge: string; glow: string; color: string }> = {
   greeting: { ring: 'ring-[#bd93f9]/50', badge: 'bg-[#44475a]/80 text-[#bd93f9] border-[#bd93f9]/40', glow: 'from-[#bd93f9]/15', color: 'text-[#bd93f9]' },
   speaking: { ring: 'ring-[#8be9fd]/50', badge: 'bg-[#44475a]/80 text-[#8be9fd] border-[#8be9fd]/40', glow: 'from-[#8be9fd]/15', color: 'text-[#8be9fd]' },
   listening: { ring: 'ring-[#50fa7b]/50', badge: 'bg-[#44475a]/80 text-[#50fa7b] border-[#50fa7b]/40', glow: 'from-[#50fa7b]/15', color: 'text-[#50fa7b]' },
@@ -57,14 +57,14 @@ export const MOOD_STYLES: Record<LumiMood, { ring: string; badge: string; glow: 
   celebrating: { ring: 'ring-[#f1fa8c]/50', badge: 'bg-[#44475a]/80 text-[#f1fa8c] border-[#f1fa8c]/40', glow: 'from-[#f1fa8c]/20', color: 'text-[#f1fa8c]' },
 };
 
-class LumiMoodController {
+class SerenMoodController {
   /** The mood set by feature code (greeting/speaking/encouraging/...). */
-  private base: LumiMood = 'greeting';
+  private base: SerenMood = 'greeting';
   /** Mic override — while true the mood is ALWAYS 'listening'. */
   private micIsOpen = false;
-  private listeners = new Set<(mood: LumiMood) => void>();
+  private listeners = new Set<(mood: SerenMood) => void>();
 
-  get current(): LumiMood {
+  get current(): SerenMood {
     return this.micIsOpen ? 'listening' : this.base;
   }
 
@@ -72,7 +72,7 @@ class LumiMoodController {
    * Set the app-level mood. 'listening' is intentionally IGNORED here —
    * it can only ever come from the microphone lifecycle.
    */
-  set(mood: LumiMood): void {
+  set(mood: SerenMood): void {
     if (mood === 'listening') return;
     if (this.base === mood) return;
     this.base = mood;
@@ -93,7 +93,7 @@ class LumiMoodController {
     this.emit();
   }
 
-  subscribe(fn: (mood: LumiMood) => void): () => void {
+  subscribe(fn: (mood: SerenMood) => void): () => void {
     this.listeners.add(fn);
     return () => {
       this.listeners.delete(fn);
@@ -107,19 +107,19 @@ class LumiMoodController {
 }
 
 /** App-wide singleton mood controller. */
-export const lumiMood = new LumiMoodController();
+export const serenMood = new SerenMoodController();
 
 /**
  * React binding for the central mood controller: `[mood, setMood]`.
- * Use this instead of local `useState<LumiMood>` so every screen shares the
+ * Use this instead of local `useState<SerenMood>` so every screen shares the
  * same state machine.
  */
-export function useLumiMood(): [LumiMood, (mood: LumiMood) => void] {
-  const [mood, setMoodState] = useState<LumiMood>(lumiMood.current);
+export function useSerenMood(): [SerenMood, (mood: SerenMood) => void] {
+  const [mood, setMoodState] = useState<SerenMood>(serenMood.current);
 
-  useEffect(() => lumiMood.subscribe(setMoodState), []);
+  useEffect(() => serenMood.subscribe(setMoodState), []);
 
-  const setMood = (m: LumiMood) => lumiMood.set(m);
+  const setMood = (m: SerenMood) => serenMood.set(m);
   return [mood, setMood];
 }
 
@@ -131,10 +131,10 @@ export function useLumiMood(): [LumiMood, (mood: LumiMood) => void] {
 export function useMicMoodSync(isRecording: boolean): void {
   useEffect(() => {
     if (isRecording) {
-      lumiMood.micOpened();
-      return () => lumiMood.micClosed();
+      serenMood.micOpened();
+      return () => serenMood.micClosed();
     }
-    lumiMood.micClosed();
+    serenMood.micClosed();
   }, [isRecording]);
 }
 
@@ -143,6 +143,6 @@ export function useMicMoodSync(isRecording: boolean): void {
  * A model returning 'listening' is coerced to 'speaking' — that mood is
  * mic-driven only.
  */
-export function normalizeReplyMood(mood: any): LumiMood {
-  return mood === 'listening' ? 'speaking' : ((mood as LumiMood) || 'speaking');
+export function normalizeReplyMood(mood: any): SerenMood {
+  return mood === 'listening' ? 'speaking' : ((mood as SerenMood) || 'speaking');
 }

@@ -32,6 +32,31 @@ body {
   color: #8be9fd;
 }
 
+/* ---------------------------------------------------------------------------
+   Reading-along highlight (Cambridge Solutions tab)
+   Driven by src/components/SpokenText.tsx while the examiner / Seren speaks.
+   `box-decoration-break: clone` keeps the rounded tint clean on every wrapped
+   line instead of one stretched, clipped box.
+--------------------------------------------------------------------------- */
+.seren-sentence-active {
+  background-color: rgb(189 147 249 / 0.14);
+  border-radius: 6px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color 200ms ease;
+}
+
+.seren-word-active {
+  background-color: rgb(241 250 140 / 0.55);
+  color: #21222c;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 0 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color 90ms linear;
+}
+
 /* Custom Dracula scrollbar */
 ::-webkit-scrollbar {
   width: 7px;

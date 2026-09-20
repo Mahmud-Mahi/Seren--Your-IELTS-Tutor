@@ -18,12 +18,13 @@ import {
   Send,
   Menu
 } from 'lucide-react';
-import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, LumiMood, SavedLessonPlan } from '../types';
+import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, SerenMood, SavedLessonPlan } from '../types';
 import { lessonPlanFingerprint } from '../utils/lessonHistory';
-import { LumiAvatar } from './LumiAvatar';
+import { SerenAvatar } from './SerenAvatar';
 import { ScrollArea } from './ScrollArea';
-import { createSpeechRecognizer, lumiVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
-import { useLumiMood, useMicMoodSync, normalizeReplyMood } from '../utils/lumiMood';
+import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
+import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
+import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 import confetti from 'canvas-confetti';
 import { lessonModuleIntro, lessonModuleIntroSpeech } from '../utils/greetings';
 
@@ -32,7 +33,7 @@ interface LessonStudioProps {
   userProfile: UserProfile;
   voiceEnabled: boolean;
   onToggleVoice: () => void;
-  // Custom Lesson history (lumi_lesson_history): roadmap of EVERY completed
+  // Custom Lesson history (seren_lesson_history): roadmap of EVERY completed
   // test / practice session, newest first. Tick marks persist in the store.
   lessonPlans: SavedLessonPlan[];
   onMarkLessonComplete: (planId: string, moduleId: string) => void;
@@ -93,19 +94,19 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     improved: string[];
     toTargetBand: string[];
   } | null>(null);
-  // Central mood state machine (src/utils/lumiMood.ts) — 'listening' is
+  // Central mood state machine (src/utils/serenMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
-  const [lumiMood, setLumiMood] = useLumiMood();
-  const [lumiSpeech, setLumiSpeech] = useState('');
-  // Audio Lumi actually READS ALOUD. Normally undefined (= speak lumiSpeech
-  // verbatim via LumiAvatar's fallback), but for the module intro it carries
+  const [serenMood, setSerenMood] = useSerenMood();
+  const [serenSpeech, setSerenSpeech] = useState('');
+  // Audio Seren actually READS ALOUD. Normally undefined (= speak serenSpeech
+  // verbatim via SerenAvatar's fallback), but for the module intro it carries
   // the practice prompt so she READS the question aloud while her speech box
   // only shows the welcome text up to "Let's master this concept."
-  const [lumiSpokenAudio, setLumiSpokenAudio] = useState<string | undefined>(undefined);
+  const [serenSpokenAudio, setSerenSpokenAudio] = useState<string | undefined>(undefined);
   /** Single helper so displayed text and spoken audio never drift apart. */
-  const sayLumi = (displayed: string, spoken?: string) => {
-    setLumiSpeech(displayed);
-    setLumiSpokenAudio(spoken);
+  const saySeren = (displayed: string, spoken?: string) => {
+    setSerenSpeech(displayed);
+    setSerenSpokenAudio(spoken);
   };
 
   // Mic lifecycle → mood: while the mic is open the mood is ALWAYS
@@ -115,6 +116,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // Custom Lessons sidebar (the 4-module roadmap panel): collapsible via the
   // hamburger toggle in the banner so the practice workspace can go full width.
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Keyboard shortcut (customizable in Settings) for the same toggle.
+  const sidebarShortcutHint = useShortcutHint('lessons.toggleSidebar');
+  useShortcut('lessons.toggleSidebar', () => setSidebarOpen((open) => !open));
 
   const [conversationHistory, setConversationHistory] = useState<any[]>([]);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
@@ -160,10 +165,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
     if (selectedModule?.title) {
       const intro = lessonModuleIntro(selectedModule.title, userProfile.nickname);
-      // Show ONLY the welcome in Lumi's box, but READ the practice prompt aloud.
+      // Show ONLY the welcome in Seren's box, but READ the practice prompt aloud.
       const introSpoken = lessonModuleIntroSpeech(selectedModule.title, userProfile.nickname, selectedModule.practiceDrill.prompt);
-      sayLumi(intro, introSpoken);
-      setLumiMood('speaking');
+      saySeren(intro, introSpoken);
+      setSerenMood('speaking');
     }
   }, [selectedModule, userProfile.nickname]);
 
@@ -188,9 +193,9 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     soundFX.playChime('start');
     // 'listening' mood comes automatically via useMicMoodSync when the
     // recognizer's onStart flips isRecording true — do NOT set it directly.
-    // Lumi's current message (including any follow-up questions) STAYS in her
+    // Seren's current message (including any follow-up questions) STAYS in her
     // box while you speak; the LISTENING badge + mic icon signal the state.
-    lumiVoice.stop();
+    serenVoice.stop();
     // Native high-fidelity recorder feeding the AI transcript refinement.
     activeAudioRecorder.start();
     recognizerRef.current?.setBaseTranscript(userSpokenText);
@@ -201,7 +206,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     recognizerRef.current?.stop();
     setIsRecording(false);
     // No "I heard you." filler and no mood override: useMicMoodSync releases
-    // the listening override and restores the previous base mood, and Lumi's
+    // the listening override and restores the previous base mood, and Seren's
     // last message stays in her box. The AI refines the transcript instead.
     void refineTranscriptWithAI(userSpokenText);
   };
@@ -244,8 +249,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   const handleListenModelSample = () => {
     if (!selectedModule?.practiceDrill?.modelBand9Sample) return;
     soundFX.playChime('start');
-    setLumiMood('speaking');
-    sayLumi(selectedModule.practiceDrill.modelBand9Sample);
+    setSerenMood('speaking');
+    saySeren(selectedModule.practiceDrill.modelBand9Sample);
   };
 
   // Ground every AI call in THIS module's ONE skill + the student's real error
@@ -280,7 +285,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     });
     setLocalCompleted((prev) => ({ ...prev, [`${selectedPlanId}:${selectedModule.id}`]: true }));
     onMarkLessonComplete(selectedPlanId, selectedModule.id);
-    setLumiMood('celebrating');
+    setSerenMood('celebrating');
     try {
       confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
     } catch (e) {}
@@ -317,13 +322,13 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     // if the user submitted straight from the listening state).
     void activeAudioRecorder.stop().catch(() => {});
     setIsEvaluatingDrill(true);
-    setLumiMood('evaluating');
-    sayLumi(`Analyzing your practice response...`);
+    setSerenMood('evaluating');
+    saySeren(`Analyzing your practice response...`);
 
     const userMsg = `Drill topic: "${selectedModule.practiceDrill.prompt}". My answer: "${userSpokenText}"`;
 
     try {
-      const res = await fetch('/api/lumi-chat', {
+      const res = await fetch('/api/seren-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -345,13 +350,13 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           ...prev,
           { ...data.reply.feedback, originalAnswer: userSpokenText },
         ]);
-        setLumiMood(normalizeReplyMood(data.reply.mood) || 'celebrating');
-        sayLumi(data.reply.replyText);
+        setSerenMood(normalizeReplyMood(data.reply.mood) || 'celebrating');
+        saySeren(data.reply.replyText);
         soundFX.playChime('success');
 
         setConversationHistory([
           { sender: 'user', text: userMsg },
-          { sender: 'lumi', text: data.reply.replyText }
+          { sender: 'seren', text: data.reply.replyText }
         ]);
 
         setUserSpokenText('');
@@ -369,8 +374,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       }
     } catch (e) {
       setIsEvaluatingDrill(false);
-      setLumiMood('encouraging');
-      sayLumi(`Excellent effort, ${userProfile.nickname}! You used great vocabulary flow.`);
+      setSerenMood('encouraging');
+      saySeren(`Excellent effort, ${userProfile.nickname}! You used great vocabulary flow.`);
       setFeedbackHistory((prev) => [
         ...prev,
         {
@@ -384,18 +389,18 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     }
   };
 
-  const handleReplyToLumi = async () => {
+  const handleReplyToSeren = async () => {
     if (!userSpokenText.trim()) return;
     recognizerRef.current?.stop();
     setIsRecording(false);
     setIsSubmittingReply(true);
-    sayLumi('');
+    saySeren('');
 
     const userMsg = userSpokenText;
     const currentHist = [...conversationHistory];
 
     try {
-      const res = await fetch('/api/lumi-chat', {
+      const res = await fetch('/api/seren-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -413,8 +418,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setIsSubmittingReply(false);
 
       if (data.success && data.reply) {
-        setLumiMood(normalizeReplyMood(data.reply.mood) || 'speaking');
-        sayLumi(data.reply.replyText);
+        setSerenMood(normalizeReplyMood(data.reply.mood) || 'speaking');
+        saySeren(data.reply.replyText);
         soundFX.playChime('success');
 
         if (data.reply.feedback) {
@@ -430,7 +435,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         setConversationHistory([
           ...currentHist,
           { sender: 'user', text: userMsg },
-          { sender: 'lumi', text: data.reply.replyText }
+          { sender: 'seren', text: data.reply.replyText }
         ]);
         
         setUserSpokenText('');
@@ -446,11 +451,11 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           completeLesson();
         }
       } else {
-        sayLumi("I didn't quite catch that. Could you try replying again?");
+        saySeren("I didn't quite catch that. Could you try replying again?");
       }
     } catch (e) {
       setIsSubmittingReply(false);
-      sayLumi("I had trouble sending that reply. Let's try once more.");
+      saySeren("I had trouble sending that reply. Let's try once more.");
     }
   };
 
@@ -464,7 +469,9 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
             id="lesson-sidebar-toggle"
             type="button"
             onClick={() => setSidebarOpen((open) => !open)}
-            title={sidebarOpen ? 'Hide module panel' : 'Show module panel'}
+            title={`${sidebarOpen ? 'Hide' : 'Show'} module panel${
+              sidebarShortcutHint ? ` (${sidebarShortcutHint})` : ''
+            }`}
             aria-label={sidebarOpen ? 'Hide module panel' : 'Show module panel'}
             className={`shrink-0 p-2 rounded-xl border transition-all ${
               sidebarOpen
@@ -582,16 +589,16 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           <div className="p-4 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-2">
             <div className="font-semibold text-[#bd93f9] flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
-              Lumi's Study Recommendation:
+              Seren's Study Recommendation:
             </div>
             <p className="text-[#f8f8f2]/80 text-[11px] leading-relaxed">
-              Complete each drill by speaking out loud into your microphone. Lumi will analyze your sentence structures and offer Band 9 upgrades!
+              Complete each drill by speaking out loud into your microphone. Seren will analyze your sentence structures and offer Band 9 upgrades!
             </p>
           </div>
         </div>
         )}
 
-        {/* Right Side: Active Drill & Practice Stage with Lumi (full width when panel hidden) */}
+        {/* Right Side: Active Drill & Practice Stage with Seren (full width when panel hidden) */}
         <div className={`${sidebarOpen ? 'lg:col-span-9' : 'lg:col-span-12'} space-y-5`}>
           <div className="p-5 sm:p-7 rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md space-y-6">
             {/* Header of Active Module */}
@@ -611,7 +618,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   type="button"
                   onClick={handleListenModelSample}
                   className="px-3 py-1.5 rounded-xl border border-[#bd93f9]/40 bg-[#21222c] hover:bg-[#44475a] text-[#bd93f9] text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                  title="Hear Lumi speak the Band 9 model response"
+                  title="Hear Seren speak the Band 9 model response"
                 >
                   <Volume2 className="w-3.5 h-3.5" />
                   <span>Band 9 Sample</span>
@@ -619,7 +626,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
               </div>
             </div>
 
-            {/* Lumi Visual Coach Stage in Lesson */}
+            {/* Seren Visual Coach Stage in Lesson */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
               <div className="md:col-span-5">
                 {/* Width wrapper: keeps the avatar AND the objectives panel at
@@ -627,16 +634,16 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     ratio is untouched and both blocks align in every sidebar
                     state. */}
                 <div className="w-full max-w-[320px] sm:max-w-[340px] mx-auto space-y-3">
-                  <LumiAvatar
-                    mood={lumiMood}
-                    currentSpeech={lumiSpeech}
-                    spokenAudioText={lumiSpokenAudio}
+                  <SerenAvatar
+                    mood={serenMood}
+                    currentSpeech={serenSpeech}
+                    spokenAudioText={serenSpokenAudio}
                     isUserSpeaking={isRecording}
                     voiceEnabled={voiceEnabled}
                     onToggleVoice={onToggleVoice}
                   />
 
-                  {/* Key Learning Objectives — directly under Lumi's voice box */}
+                  {/* Key Learning Objectives — directly under Seren's voice box */}
                   <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-2 text-xs">
                     <div className="font-semibold text-[#f8f8f2] flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-[#8be9fd]" />
@@ -785,7 +792,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   className="px-6 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-40 disabled:pointer-events-none text-[#282a36] font-bold text-xs sm:text-sm shadow-lg shadow-[#bd93f9]/25 transition-all flex items-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{isEvaluatingDrill ? 'Lumi is Evaluating...' : 'Get Feedback'}</span>
+                  <span>{isEvaluatingDrill ? 'Seren is Evaluating...' : 'Get Feedback'}</span>
                 </button>
               </div>
             </div>
@@ -803,7 +810,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-xs font-bold text-[#bd93f9] uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-[#bd93f9]" />
-                      Lumi's Real-Time Drill Feedback
+                      Seren's Real-Time Drill Feedback
                     </span>
                     {lessonSummary ? (
                       <span className="text-xs font-semibold text-[#50fa7b] flex items-center gap-1">
@@ -937,7 +944,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
               </div>
             )}
 
-            {/* Reply to Lumi — placed BELOW the feedback scroll area so it is
+            {/* Reply to Seren — placed BELOW the feedback scroll area so it is
                 never clipped. Record Reply is blocked while a send is in flight
                 and Send stays visible but disabled while the input is empty.
                 Hidden once the lesson wraps up (summary card takes over). */}
@@ -945,7 +952,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
               <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-3">
                 <span className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
                   <Mic className="w-3.5 h-3.5 text-[#8be9fd]" />
-                  Reply to Lumi:
+                  Reply to Seren:
                 </span>
                 <textarea
                   value={userSpokenText}
@@ -981,7 +988,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                       empty or while a previous reply is still sending. */}
                   <button
                     type="button"
-                    onClick={handleReplyToLumi}
+                    onClick={handleReplyToSeren}
                     disabled={!userSpokenText.trim() || isSubmittingReply}
                     className="px-5 py-2 rounded-xl bg-[#8be9fd] hover:bg-[#8be9fd]/90 disabled:opacity-40 disabled:cursor-not-allowed text-[#282a36] font-bold text-xs flex items-center gap-2 ml-auto"
                   >
