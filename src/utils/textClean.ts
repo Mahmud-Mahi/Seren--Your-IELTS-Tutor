@@ -3,7 +3,7 @@
  *
  * Imported by BOTH sides of the app:
  *  - the browser speech engine (src/utils/speech.ts) — cleans a line right
- *    before it is sent to /api/tts or handed to the Web Speech API, and
+ *    before it is sent to /api/tts or handed to the speech synthesis engine, and
  *  - the neural TTS route on the server (src/server/tts.ts) — defence in depth
  *    for any caller that posts raw text.
  *

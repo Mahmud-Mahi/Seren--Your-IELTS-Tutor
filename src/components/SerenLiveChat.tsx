@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic,
-  MicOff,
   Send,
   Sparkles,
   Lightbulb,
+  Square,
   Zap,
   Loader2,
   Info,
@@ -18,7 +18,7 @@ import { ChatMessage, UserProfile, SpeakingEvaluation, SerenMood, UpgradedExpres
 import { ChatInputBox } from './ChatInputBox';
 import { SerenAvatar } from './SerenAvatar';
 import { ScrollArea } from './ScrollArea';
-import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI } from '../utils/speech';
+import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../utils/speech';
 import { getAutoMicEnabled } from '../utils/preferences';
 import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
 import { pickRandomTopic, getQuestionsByTopic, type IELTSPart1Question } from '../data/ieltsQuestionsP1';
@@ -117,8 +117,6 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   const [greetingDone, setGreetingDone] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognizerRef = useRef<any>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
   const isRecordingRef = useRef(false);
   const stoppingInterviewRef = useRef(false);
   const currentQuestionIdxRef = useRef(0);
@@ -224,24 +222,6 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     });
   }, [currentTopic, topicQuestions, currentQuestionIdx, userAnswers]);
 
-  // Initialize speech recognizer (for casual chat input)
-  useEffect(() => {
-    recognizerRef.current = createSpeechRecognizer({
-      initialText: inputText,
-      lang: selectedLanguage,
-      onResult: (text) => setInputText(text),
-      onStart: () => {
-        setIsRecording(true);
-        isRecordingRef.current = true;
-      },
-      onEnd: () => {
-        setIsRecording(false);
-        isRecordingRef.current = false;
-      },
-    });
-    return () => recognizerRef.current?.stop();
-  }, [selectedLanguage]);
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -249,9 +229,6 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      recognizerRef.current?.stop();
-      interviewRecognizerRef.current?.stop();
-      interviewRecognizerRef.current = null;
       serenVoice.stop();
       void activeAudioRecorder.stop().catch(() => {});
     };
@@ -259,81 +236,70 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
   // ---- INTERVIEW MODE ----
 
-  const liveTranscriptRef = useRef('');
-  // The composer's editable answer box — shows live speech while recording
-  // and doubles as the typed-answer input (Discord/WhatsApp style).
+  // The composer's editable answer box — the Whisper transcript lands here
+  // after the user stops recording, and doubles as the typed-answer input
+  // (Discord/WhatsApp style).
   const [answerText, setAnswerText] = useState('');
   const answerTextRef = useRef('');
   const updateAnswerText = (text: string) => {
     answerTextRef.current = text;
     setAnswerText(text);
   };
-  // Surfaces speech-to-text problems (unsupported browser, permission denied,
-  // network blocked) so an empty text box is never a silent mystery.
+  // Surfaces transcription problems (mic denied, Whisper unavailable, unclear
+  // speech) so an empty text box is never a silent mystery.
   const [sttNotice, setSttNotice] = useState('');
-  // Copilot-style inline suggestion: when Whisper finishes refining a stopped
-  // recording, the polished text is OFFERED here instead of silently replacing
-  // the composer — the user accepts it (Tab / "Use it") or keeps their draft
-  // (Esc / "Keep mine"). `target` says which composer the suggestion is for.
-  const [ghostSuggestion, setGhostSuggestion] = useState<{ target: 'interview' | 'casual'; text: string } | null>(null);
-  const interviewRecognizerRef = useRef<any>(null);
-  // Guards against double-finalizing when the recognizer auto-ends at the
-  // same moment the user clicks the stop button.
+  // Guards against double-finalizing when the user submits twice.
   const finalizingInterviewRef = useRef(false);
+  // Transcribing indicator for the stop/sending flows (Whisper only runs
+  // AFTER the user stops recording — no live text, no AI modification).
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
-  // Stop the interview recording WITHOUT submitting: releases the microphone,
-  // keeps the current speech in the composer, and AI-refines it so the user
-  // sees the polished text. The user then reviews (optionally edits) and presses
+  // Stop the interview recording WITHOUT submitting: releases the microphone
+  // and transcribes the recording with local Whisper so the user sees their
+  // words in the composer. The user then reviews (optionally edits) and presses
   // Send to actually send the answer — stopping alone never submits.
+  // NOTE: no AI modification of the transcript — Whisper's raw transcription
+  // is what lands in the composer.
   const stopInterviewRecording = useCallback(async () => {
     // Mutual exclusion with finalize: if a Send is already in progress, never
-    // let a recognizer-originated stop interleave (which could repopulate the
-    // composer or double-stop the recorder mid-advance).
+    // let a second stop interleave (which could double-stop the recorder
+    // mid-advance).
     if (stoppingInterviewRef.current || finalizingInterviewRef.current) return;
     stoppingInterviewRef.current = true;
 
-    if (interviewRecognizerRef.current) {
-      try { interviewRecognizerRef.current.stop(); } catch (e) {}
-      interviewRecognizerRef.current = null;
-    }
     setIsRecording(false);
     isRecordingRef.current = false;
 
     const recordResult = await activeAudioRecorder.stop().catch(() => null);
-    const draft = liveTranscriptRef.current || answerTextRef.current || '';
-    const applyText = (text: string) => {
-      if (text && text.trim()) updateAnswerText(text.trim());
-    };
+    stoppingInterviewRef.current = false;
 
-    // AI-refine the recorded speech (Whisper) so the text in the composer is
-    // clean before the user sends it. The refined text is offered as a
-    // Copilot-style inline suggestion — the user chooses it or keeps theirs.
     if (recordResult?.base64 && recordResult.base64.length > 50) {
+      setIsTranscribing(true);
       try {
-        const refined = await transcribeAudioWithAI({
+        const transcript = await transcribeAudio({
           audioBase64: recordResult.base64,
           mimeType: recordResult?.mimeType || 'audio/webm',
-          draftTranscript: draft,
         });
-        const clean = (refined || '').trim();
-        if (clean && clean !== (draft || '').trim()) {
-          setGhostSuggestion({ target: 'interview', text: clean });
+        const clean = transcript.trim();
+        if (clean) {
+          // Append after any typed draft; a fresh recording lands in an empty
+          // composer on its own.
+          updateAnswerText(answerTextRef.current.trim() ? `${answerTextRef.current.trim()} ${clean}` : clean);
+          setSttNotice('');
         } else {
-          applyText(draft);
+          setSttNotice('I couldn\u2019t make out any clear speech in that recording — try speaking a little closer to the mic, or type your answer.');
         }
       } catch (e) {
-        console.warn('Interview transcription refinement notice:', e);
-        applyText(draft);
+        console.warn('Interview transcription notice:', e);
+        setSttNotice('Transcription failed (is the local Whisper engine running?) — you can type your answer instead.');
+      } finally {
+        setIsTranscribing(false);
       }
-    } else {
-      applyText(draft);
     }
-
-    stoppingInterviewRef.current = false;
-  }, [selectedLanguage]);
+  }, []);
 
   const startInterviewRecording = useCallback(() => {
-    // Already recording / finalizing — never start a second recognizer/recorder.
+    // Already recording / finalizing — never start a second recorder.
     if (isRecordingRef.current || finalizingInterviewRef.current) return;
 
     // Self-heal: if the interview session isn't flagged active (e.g. after
@@ -352,108 +318,59 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     // Mood: 'listening' comes automatically from useMicMoodSync when
     // isRecording flips true (do NOT set it directly — the controller
     // ignores it). Keep the mic-driven rule intact.
-    liveTranscriptRef.current = '';
-    // A new recording invalidates any pending Whisper suggestion.
-    setGhostSuggestion(null);
+    // A new recording clears any previous transcription notice.
     setSttNotice('');
 
     // Arm the mic as soon as the start-chime's attack has passed (200 ms) so
-    // the opening phrase of the answer is still captured. The old 400 ms wait
-    // meant a user who started speaking right away lost the first words to
-    // Whisper, which then refined a mid-sentence/out-of-context fragment.
-    // The chime tail that remains is suppressed by echoCancellation on the
-    // mic stream, exactly like the Cambridge/common-lesson recorder path.
-    setTimeout(() => { activeAudioRecorder.start(); }, 200);
+    // the opening phrase of the answer is still captured. The chime tail that
+    // remains is suppressed by echoCancellation on the mic stream.
+    setIsRecording(true);
+    isRecordingRef.current = true;
+    setTimeout(async () => {
+      const ok = await activeAudioRecorder.start();
+      if (!ok && isRecordingRef.current) {
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        setSttNotice('Microphone unavailable — check browser permissions, or type your answer.');
+      }
+    }, 200);
+  }, []);
 
-    const rec = createSpeechRecognizer({
-      initialText: answerTextRef.current,
-      lang: selectedLanguage,
-      onResult: (text) => {
-        liveTranscriptRef.current = text;
-        updateAnswerText(text);
-      },
-      onStart: () => {
-        setIsRecording(true);
-        isRecordingRef.current = true;
-      },
-      onEnd: () => {
-        // The recognizer ended on its own (silence timeout / browser limit) or
-        // after a manual stop. Stop the audio and refine the speech into the
-        // composer — we NEVER auto-submit. The user presses Send to send.
-        void stopInterviewRecording();
-      },
-      onError: (err) => {
-        if (err === 'not-allowed' || err === 'service-not-allowed') {
-          setSttNotice('Microphone blocked for live text — allow mic access, or just type your answer. Your speech will still be transcribed by Whisper when you stop.');
-        } else if (err === 'network') {
-          setSttNotice('Live speech text is unavailable right now — keep talking, Whisper will transcribe your recording when you stop.');
-        } else if (err !== 'no-speech' && err !== 'aborted') {
-          setSttNotice(`Live speech text issue (${err}) — keep talking, Whisper will transcribe when you stop.`);
-        }
-      },
-    });
-    interviewRecognizerRef.current = rec;
-
-    if (!rec.isSupported) {
-      // No Web Speech API in this browser: still record via MediaRecorder so
-      // Whisper can transcribe after the user stops, but say so plainly.
-      setIsRecording(true);
-      isRecordingRef.current = true;
-      setSttNotice('Live speech text isn\u2019t supported in this browser — speak now; Whisper transcribes your recording when you stop (or type your answer).');
-      return;
-    }
-
-    rec.start();
-  }, [selectedLanguage]);
-
-  // Finalize the current interview answer: always stops the recognizer AND the
-  // media recorder completely (releasing the microphone), then saves the
-  // response and advances to the next question. If the user typed/edited their
-  // answer in the composer, overrideText takes priority over the transcription.
+  // Finalize the current interview answer: stops the media recorder completely
+  // (releasing the microphone), then saves the response and advances to the
+  // next question. If the user typed/edited their answer in the composer,
+  // overrideText takes priority over the transcription.
   const finalizeInterviewAnswer = useCallback(async (overrideText?: string) => {
     if (finalizingInterviewRef.current) return;
     finalizingInterviewRef.current = true;
 
-    // Keep the mic-free moment visible: kill recognition + recorder first.
-    if (interviewRecognizerRef.current) {
-      try {
-        interviewRecognizerRef.current.stop();
-      } catch (e) {}
-      interviewRecognizerRef.current = null;
-    }
+    // Keep the mic-free moment visible: stop the recorder first.
     setIsRecording(false);
+    const wasRecording = isRecordingRef.current;
     isRecordingRef.current = false;
 
     const recordResult = await activeAudioRecorder.stop().catch(() => null);
-    const draftText = liveTranscriptRef.current || '';
     const typed = (overrideText || '').trim();
 
     let finalText = typed;
-    // Always AI-refine the recorded speech (Whisper) when audio is present, so
-    // the sent answer is polished even if the user hits Send mid-recording.
-    // Falls back to the typed/edited text or the Web Speech draft otherwise.
-    if (recordResult?.base64 && recordResult.base64.length > 50) {
+    // If the user hits Send mid-recording, the recording has not been
+    // transcribed yet (the stop button was skipped) — transcribe it now so
+    // their spoken answer is what gets sent. Typed text always wins.
+    if (wasRecording && recordResult?.base64 && recordResult.base64.length > 50 && !typed) {
+      setIsTranscribing(true);
       try {
-        const refined = await transcribeAudioWithAI({
+        const transcript = await transcribeAudio({
           audioBase64: recordResult.base64,
           mimeType: recordResult?.mimeType || 'audio/webm',
-          draftTranscript: draftText || finalText,
         });
-        if (refined && refined.trim()) {
-          // The composer wins over Whisper: if the user typed or edited an
-          // answer, that text is what they intend to send — silently swapping
-          // it for tiny.en's transcription is exactly what caused "out of
-          // context" messages. Whisper only supplies the text when there is
-          // no typed answer (i.e. a pure voice reply).
-          if (!typed) {
-            finalText = refined.trim();
-          }
+        if (transcript && transcript.trim()) {
+          finalText = transcript.trim();
         }
       } catch (e) {
-        console.warn('Interview transcription refinement notice:', e);
+        console.warn('Interview transcription notice:', e);
+      } finally {
+        setIsTranscribing(false);
       }
-    } else if (!finalText) {
-      finalText = draftText;
     }
 
     const idx = currentQuestionIdxRef.current;
@@ -465,10 +382,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       return;
     }
     lastAnsweredIdxRef.current = idx;
-    // Sending the answer consumes/invalidates any pending suggestion.
-    setGhostSuggestion(null);
     setUserAnswers((prev) => ({ ...prev, [idx]: finalText }));
-    liveTranscriptRef.current = '';
     updateAnswerText('');
 
     // Add user message to chat
@@ -772,7 +686,6 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
   const handleInputChange = (text: string) => {
     setInputText(text);
-    recognizerRef.current?.setBaseTranscript(text);
   };
 
   const handleSendMessage = async (textToSend?: string) => {
@@ -780,16 +693,13 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     if (!text || isLoading) return;
 
     if (isRecording) {
-      recognizerRef.current?.stop();
       setIsRecording(false);
+      isRecordingRef.current = false;
       // Fully release the mic — the MediaRecorder keeps its stream alive
       // (browser mic indicator stays on) unless stopped too.
       void activeAudioRecorder.stop().catch(() => {});
     }
 
-    recognizerRef.current?.reset();
-    // Sending consumes/invalidates any pending Whisper suggestion.
-    setGhostSuggestion(null);
     soundFX.playChime('start');
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -902,49 +812,57 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     setEditingMessageId(msg.id);
   }, []);
 
+  // Casual-chat mic: record with the box showing the live equalizer; stop
+  // transcribes with local Whisper (no AI modification) and drops the text
+  // into the composer. Stop never auto-sends — the user presses Send.
   const handleToggleMic = async () => {
     if (isRecording) {
-      recognizerRef.current?.stop();
       setIsRecording(false);
+      isRecordingRef.current = false;
 
-      const recordResult = await activeAudioRecorder.stop();
+      const recordResult = await activeAudioRecorder.stop().catch(() => null);
       if (recordResult?.base64 && recordResult.base64.length > 50) {
+        setIsTranscribing(true);
         try {
-          const refined = await transcribeAudioWithAI({
+          const transcript = await transcribeAudio({
             audioBase64: recordResult.base64,
             mimeType: recordResult.mimeType,
-            draftTranscript: inputText,
           });
-          const clean = (refined || '').trim();
-          if (clean && clean !== inputText.trim()) {
-            // Copilot-style: offer the Whisper text instead of overwriting.
-            setGhostSuggestion({ target: 'casual', text: clean });
-          } else if (clean) {
-            setInputText(clean);
+          const clean = transcript.trim();
+          if (clean) {
+            // Append after any typed draft (mirrors the old combined behavior).
+            setInputText((prev) => (prev.trim() ? `${prev.trim()} ${clean}` : clean));
+            setSttNotice('');
+          } else {
+            setSttNotice('I couldn\u2019t make out any clear speech in that recording — try speaking a little closer to the mic, or type your message.');
           }
         } catch (e) {
-          console.warn('Chat AI transcription notice:', e);
+          console.warn('Chat transcription notice:', e);
+          setSttNotice('Transcription failed (is the local Whisper engine running?) — please type your message instead.');
+        } finally {
+          setIsTranscribing(false);
         }
       }
     } else {
       soundFX.playChime('start');
       // Cut off Seren's still-streaming speech BEFORE arming the mic. If her
       // TTS is playing when the MediaRecorder opens, her voice gets recorded
-      // from the speakers and Whisper then "refines" the answer into HER
-      // words — a completely out-of-context transcript. Every other recording
-      // flow (Cambridge test, custom lessons, interview mode below) stops
-      // Seren first; this casual-chat path was the only one that didn't.
+      // from the speakers and Whisper then transcribes HER words — a
+      // completely out-of-context transcript.
       serenVoice.stop();
-      // A new recording invalidates any pending Whisper suggestion.
-      setGhostSuggestion(null);
-      recognizerRef.current?.setBaseTranscript(inputText);
-      // Arm the mic as soon as the start-chime's attack has passed. Waiting
-      // a full 400 ms let the user's opening phrase slip past the recorder,
-      // so Whisper only heard a mid-sentence fragment and produced a
-      // truncated/out-of-context refinement. (Chime tail is suppressed by the
-      // echoCancellation on the mic stream, same as the Cambridge flow.)
-      setTimeout(() => { activeAudioRecorder.start(); }, 200);
-      recognizerRef.current?.start();
+      setSttNotice('');
+      // Arm the mic as soon as the start-chime's attack has passed. The chime
+      // tail is suppressed by echoCancellation on the mic stream.
+      setIsRecording(true);
+      isRecordingRef.current = true;
+      setTimeout(async () => {
+        const ok = await activeAudioRecorder.start();
+        if (!ok && isRecordingRef.current) {
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          setSttNotice('Microphone unavailable — check browser permissions, or type your message.');
+        }
+      }, 200);
     }
   };
 
@@ -1003,11 +921,6 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   const handleModeSwitch = (mode: 'Interview' | 'Casual Chat') => {
     if (mode === selectedTopicMode) return;
     serenVoice.stop();
-    recognizerRef.current?.stop();
-    if (interviewRecognizerRef.current) {
-      interviewRecognizerRef.current.stop();
-      interviewRecognizerRef.current = null;
-    }
     void activeAudioRecorder.stop().catch(() => {});
     setIsRecording(false);
     setIsLoading(false);
@@ -1385,10 +1298,17 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                     type="button"
                     onClick={() => stopInterviewRecording()}
                     className="p-3 rounded-2xl bg-[#ff5555] border border-[#ff5555] text-[#f8f8f2] animate-pulse shadow-lg shadow-[#ff5555]/25 transition-all shrink-0"
-                    title="Stop recording (press Send to send your answer)"
+                    title="Stop recording — Whisper transcribes, then press Send to send your answer"
                   >
-                    <MicOff className="w-5 h-5" />
+                    <Square className="w-5 h-5" />
                   </button>
+                ) : isTranscribing ? (
+                  <div
+                    className="p-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-[#bd93f9] shrink-0"
+                    title="Whisper is transcribing your recording..."
+                  >
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
                 ) : (
                   <button
                     id="interview-start-mic-btn"
@@ -1403,27 +1323,19 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                 )}
 
                 {/* Always-visible multi-line composer (like WhatsApp / Discord) —
-                    live speech appears here while recording; Enter submits,
-                    Shift+Enter adds a newline */}
+                    Equalizer while recording, Whisper transcript after;
+                    Enter submits, Shift+Enter adds a newline */}
                 <ChatInputBox
                   inputId="chat-text-input"
                   value={answerText}
                   onChange={updateAnswerText}
                   onSend={submitInterviewAnswer}
-                  ghostSuggestion={ghostSuggestion?.target === 'interview' ? ghostSuggestion.text : null}
-                  onGhostAccept={() => {
-                    if (ghostSuggestion?.target === 'interview') {
-                      updateAnswerText(ghostSuggestion.text);
-                      setGhostSuggestion(null);
-                    }
-                  }}
-                  onGhostDismiss={() => setGhostSuggestion((g) => (g?.target === 'interview' ? null : g))}
+                  isRecording={isRecording}
+                  recordingHint="Listening — press stop, then Whisper transcribes your answer"
                   disabled={isEvaluating || !greetingDone || (!isInterviewActive && topicQuestions.length > 0)}
                   placeholder={
                     isEvaluating
                       ? 'Generating your report...'
-                      : isRecording
-                      ? 'Listening — speak now...'
                       : !isInterviewActive && topicQuestions.length > 0
                       ? 'Click "Evaluate My English" to see your results...'
                       : 'Type your answer (Enter to send) or use the mic...'
@@ -1467,8 +1379,8 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                 ) : null}
               </div>
 
-              {/* Speech-to-text status notice (unsupported browser, mic blocked,
-                  network error, etc.) — an empty box is never a silent mystery */}
+              {/* Speech-to-text status notice (mic blocked, Whisper unavailable,
+                  unclear speech, etc.) — an empty box is never a silent mystery */}
               {sttNotice && (
                 <p className="px-1 pt-2 text-[10px] leading-relaxed text-[#ffb86c] flex items-start gap-1.5">
                   <Info className="w-3 h-3 shrink-0 mt-0.5" />
@@ -1491,30 +1403,20 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   }`}
                   title={isRecording ? 'Stop Recording' : 'Speak into microphone'}
                 >
-                  {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                 </button>
 
-                {/* Multi-line composer — grows with content, Enter sends,
-                    Shift+Enter newlines; caret follows live speech */}
+                {/* Multi-line composer — shows the live mic equalizer while
+                    recording; Enter sends, Shift+Enter newlines */}
                 <ChatInputBox
                   inputId="chat-text-input"
                   value={inputText}
                   onChange={handleInputChange}
                   onSend={() => handleSendMessage()}
-                  ghostSuggestion={ghostSuggestion?.target === 'casual' ? ghostSuggestion.text : null}
-                  onGhostAccept={() => {
-                    if (ghostSuggestion?.target === 'casual') {
-                      setInputText(ghostSuggestion.text);
-                      setGhostSuggestion(null);
-                    }
-                  }}
-                  onGhostDismiss={() => setGhostSuggestion((g) => (g?.target === 'casual' ? null : g))}
+                  isRecording={isRecording}
+                  recordingHint="Listening — press stop, then Whisper transcribes your speech"
                   disabled={isLoading}
-                  placeholder={
-                    isRecording
-                      ? 'Listening to your speech...'
-                      : 'Type or speak your answer to Seren...'
-                  }
+                  placeholder="Type or speak your answer to Seren..."
                   autoFocus
                   containerClassName="flex-1"
                 />

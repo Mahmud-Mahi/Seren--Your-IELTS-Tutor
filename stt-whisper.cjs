@@ -24,7 +24,13 @@ function projectRoot() {
   return path.basename(__dirname) === 'dist' ? path.resolve(__dirname, '..') : __dirname;
 }
 
-const MODELS_ROOT = path.join(projectRoot(), 'models');
+// Where the Whisper model is stored. Defaults to <projectRoot>/models, keeping
+// dev / `npm start` unchanged. The desktop shell points SEREN_MODELS_DIR at a
+// writable app-data folder because the installed app bundle is read-only and
+// the ~113MB first-run download would otherwise fail.
+const MODELS_ROOT = process.env.SEREN_MODELS_DIR
+  ? path.resolve(process.env.SEREN_MODELS_DIR)
+  : path.join(projectRoot(), 'models');
 const MODEL_DIR = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-tiny.en');
 const MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2';
 const MODEL_ARCHIVE = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-tiny.en.tar.bz2');

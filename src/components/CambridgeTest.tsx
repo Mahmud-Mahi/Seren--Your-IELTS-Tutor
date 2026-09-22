@@ -19,7 +19,8 @@ import {
 import { DiagnosticQuestion, UserProfile, SpeakingEvaluation } from '../types';
 import { CAMBRIDGE_TESTS, getCambridgeTestById } from '../data/cambridgeTests';
 import { SerenAvatar } from './SerenAvatar';
-import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
+import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../utils/speech';
+import { MicEqualizer } from './MicEqualizer';
 import confetti from 'canvas-confetti';
 import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing } from '../utils/greetings';
 
@@ -84,19 +85,13 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzingStage, setAnalyzingStage] = useState('');
   const [autoAdvanceNotice, setAutoAdvanceNotice] = useState('');
-  const [isRefiningTranscript, setIsRefiningTranscript] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [showManualEdit, setShowManualEdit] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const selectedTest = selectedTestId ? getCambridgeTestById(selectedTestId) ?? null : null;
   const questions: DiagnosticQuestion[] = selectedTest?.questions || [];
   const currentQ: DiagnosticQuestion = questions[currentIdx] || questions[0] || DIAGNOSTIC_FALLBACK_QUESTION;
   const currentTranscript = transcripts[currentQ.id] || '';
-  // Always points at the part currently on screen. The recognizer is built
-  // ONCE (empty-deps effect), so its callbacks must never close over the
-  // first render's question — otherwise results in later parts are written
-  // into the wrong transcript key and the textarea never updates.
-  const currentQIdRef = useRef(currentQ.id);
-  currentQIdRef.current = currentQ.id;
 
   // Persist diagnostic progress so a closed app resumes at the same part
   useEffect(() => {
@@ -107,9 +102,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
       );
     } catch {}
   }, [selectedTestId, currentIdx, transcripts]);
-  const recognizerRef = useRef<any>(null);
-  const recognizerGenerationRef = useRef(0);
-  const isStartingRef = useRef(false);
+  // Guards the TTS→mic auto-start so it fires once per recording transition.
   const recordingTransitionRef = useRef({ id: '', started: false });
   // Mirror of isRecording readable inside async callbacks without stale closures
   const isRecordingRef = useRef(false);
@@ -117,8 +110,11 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const attemptIdRef = useRef(0);
   // Prevent two finalize flows (manual stop vs timer expiry) from interleaving
   const finalizeInFlightRef = useRef(false);
-  const refinedPartsRef = useRef<Set<string>>(new Set());
-  // Resolves when the most recent finalize (incl. its Whisper refinement) is done
+  // Tracks which question ids were already transcribed for the current
+  // attempt (so manual stop + auto-expiry + submit can't double-transcribe).
+  const transcribedPartsRef = useRef<Set<string>>(new Set());
+  // Resolves when the most recent finalize (incl. its Whisper transcription)
+  // is done
   const finalizePromiseRef = useRef<Promise<void>>(Promise.resolve());
   // Pending post-expiry finalize that a manual stop must cancel
   const expireTimerRef = useRef<any>(null);
@@ -132,7 +128,6 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   // render-closure `transcripts` may be stale for the part being finalized
   const transcriptsRef = useRef(transcripts);
   transcriptsRef.current = transcripts;
-  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
 
   // Compute clean, expressive speech prompt for Seren (spoken once upon entering each question).
   // IMPORTANT: Seren actually reads the question aloud so text and voice always match.
@@ -182,56 +177,6 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     ? `Listening to your response (${timeLeft}s remaining), ${userProfile.nickname}...`
     : `Let’s take this one step at a time — calm, confident, and clear.`;
 
-  // Initialize Speech Recognizer
-  useEffect(() => {
-    const gen = ++recognizerGenerationRef.current;
-    recognizerRef.current = createSpeechRecognizer({
-      initialText: currentTranscript,
-      lang: selectedLanguage,
-      onResult: (text) => {
-        setTranscripts((prev) => ({
-          ...prev,
-          [currentQIdRef.current]: text,
-        }));
-      },
-      onError: (err) => {
-        if (err !== 'no-speech') {
-          setErrorMsg(`Microphone note: ${err}`);
-        }
-      },
-      onStart: () => {
-        if (gen === recognizerGenerationRef.current) {
-          recordingTransitionRef.current.started = false;
-          isRecordingRef.current = true;
-          setIsRecording(true);
-          isStartingRef.current = false;
-        }
-      },
-      onEnd: () => {
-        if (gen === recognizerGenerationRef.current) {
-          isRecordingRef.current = false;
-          setIsRecording(false);
-          isStartingRef.current = false;
-        }
-      },
-    });
-
-    return () => {
-      recognizerRef.current?.stop();
-      void activeAudioRecorder.stop().catch(() => {});
-    };
-  }, []);
-
-  // NOTE: silent-death recovery for the Web Speech API (e.g. Chrome stopping
-  // results ~60-90s into a long Part 2 turn) lives inside the recognizer
-  // controller itself — a watchdog that hard-restarts with a fresh instance
-  // without ever flipping the UI out of its recording state.
-
-  const handleLanguageChange = (lang: string) => {
-    setSelectedLanguage(lang);
-    recognizerRef.current?.setLanguage(lang);
-  };
-
   // Leaving the test view mid-flow (tab switch): release the mic and drop
   // pending gate timers. Voice cut is handled by App's handleSelectView —
   // stopping here too would swallow the re-mount greeting under StrictMode.
@@ -249,7 +194,7 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
         clearTimeout(prepGateCapRef.current);
         prepGateCapRef.current = null;
       }
-      recognizerRef.current?.stop();
+      void activeAudioRecorder.stop().catch(() => {});
     };
   }, []);
 
@@ -259,7 +204,6 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
       ...prev,
       [currentQ.id]: newText,
     }));
-    recognizerRef.current?.setBaseTranscript(newText);
   };
 
   const handleToggleHint = () => {
@@ -322,11 +266,9 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     setAutoAdvanceNotice('');
     isRecordingRef.current = false;
     setIsRecording(false);
-    if (expireTimerRef.current) {
-      clearTimeout(expireTimerRef.current);
-      expireTimerRef.current = null;
-    }
-    recognizerRef.current?.stop();
+    // Release the mic when moving between parts so the browser indicator
+    // never stays on between questions.
+    void activeAudioRecorder.stop().catch(() => {});
     // Cut off any speech from the previous part immediately so it never
     // overlaps with (or races the TTS fetch for) the next part's voice
     serenVoice.stop();
@@ -490,8 +432,7 @@ useEffect(() => {
   }, [isRecording, timeLeft, currentIdx]);
 
   const startRecording = () => {
-    if (isStartingRef.current) return; // Prevent double-start
-    isStartingRef.current = true;
+    if (isRecordingRef.current) return; // Prevent double-start
     recordingTransitionRef.current.started = true;
     // New attempt: any pending expiry-finalize from a previous attempt is void
     if (expireTimerRef.current) {
@@ -504,81 +445,77 @@ useEffect(() => {
     setIsPrepPhase(false);
     // Always give a fresh full attempt when (re)starting to speak for this part
     setTimeLeft(currentQ.speakTimeSeconds);
-    // New attempt => this part's transcript should be refined again afterwards
-    refinedPartsRef.current.delete(currentQ.id);
+    // New attempt => this part should be transcribed again afterwards
+    transcribedPartsRef.current.delete(currentQ.id);
     serenVoice.stop();
     soundFX.playChime('start');
 
-    // Start native high-fidelity audio recorder for Whisper STT
-    activeAudioRecorder.start();
-
-    if (recognizerRef.current?.isSupported) {
-      recognizerRef.current.setBaseTranscript(currentTranscript);
-      recognizerRef.current.start();
-      // If the recognizer never fires onStart (tainted instance), re-arm the
-      // button after a grace period so the user is not locked out — the
-      // controller's watchdog keeps retrying with fresh instances meanwhile.
-      setTimeout(() => {
-        if (!isRecordingRef.current) isStartingRef.current = false;
-      }, 4000);
-    } else {
-      recordingTransitionRef.current.started = false;
-      isRecordingRef.current = true;
-      setIsRecording(true);
-      isStartingRef.current = false;
-    }
+    // Record with MediaRecorder for local Whisper STT. The transcript box
+    // shows the live mic equalizer while recording — the text itself lands
+    // only AFTER the user stops. No live text, no AI modification.
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    activeAudioRecorder.start().then((ok) => {
+      if (!ok && isRecordingRef.current) {
+        isRecordingRef.current = false;
+        setIsRecording(false);
+        setErrorMsg('Microphone unavailable — check browser permissions, or type your answer instead.');
+      }
+    }).catch(() => {});
   };
 
-  // Stops mic capture and runs the Whisper transcript refinement once per
-  // attempt. Guarded by attempt id so only the finalize belonging to the
-  // CURRENT recording attempt can stop it — never a stale one.
+  // Stops mic capture and runs the local Whisper transcription once per
+  // attempt (no AI modification of the text). Guarded by attempt id so only
+  // the finalize belonging to the CURRENT recording attempt can stop it —
+  // never a stale one.
   const finalizeCurrentPart = async (attemptId: number, qId: string) => {
     // Serialize finalizes: when the user moves through parts quickly, the
-    // previous part's Whisper refinement may still be running. Dropping this
-    // finalize (the old single-flight guard) silently skipped this part's AI
-    // enhancement entirely — queue it behind the earlier one instead.
+    // previous part's Whisper transcription may still be running. Dropping this
+    // finalize (the old single-flight guard) silently skipped this part's
+    // transcription entirely — queue it behind the earlier one instead.
     const run = (async () => {
       await finalizePromiseRef.current;
 
       // Grace period: wait a brief moment for any ongoing speech to naturally
-      // end before stopping recognition, so trailing words still get captured.
+      // end before stopping capture, so trailing words still get recorded.
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       // Stale guard: user restarted recording (or switched part) mid-grace —
       // this finalize belongs to an abandoned attempt, leave the mic alone.
       if (attemptId !== attemptIdRef.current) return;
 
-      recognizerRef.current?.stop();
       recordingTransitionRef.current.started = false;
       isRecordingRef.current = false;
       setIsRecording(false);
 
       // Stop native audio recorder and obtain audio payload
       const recordResult = await activeAudioRecorder.stop().catch(() => null);
-      const draftText = transcriptsRef.current[qId] || '';
 
-      // Refine only once per attempt (manual stop + auto-expiry + submit all funnel here)
-      if (refinedPartsRef.current.has(qId)) return;
-      if ((recordResult?.base64 && recordResult.base64.length > 50) || draftText.length > 5) {
-        refinedPartsRef.current.add(qId);
-        setIsRefiningTranscript(true);
+      // Transcribe only once per attempt (manual stop + auto-expiry + submit
+      // all funnel here)
+      if (transcribedPartsRef.current.has(qId)) return;
+      if (recordResult?.base64 && recordResult.base64.length > 50) {
+        transcribedPartsRef.current.add(qId);
+        setIsTranscribing(true);
         try {
-          const refinedText = await transcribeAudioWithAI({
+          const transcript = await transcribeAudio({
             audioBase64: recordResult?.base64 || '',
             mimeType: recordResult?.mimeType || 'audio/webm',
-            draftTranscript: draftText,
           });
 
-          if (refinedText && refinedText.trim()) {
+          const clean = transcript.trim();
+          if (clean) {
+            // Append after existing text (e.g. a typed/manual edit), matching
+            // the old combined behavior.
             setTranscripts((prev) => ({
               ...prev,
-              [qId]: refinedText.trim(),
+              [qId]: prev[qId]?.trim() ? `${prev[qId].trim()} ${clean}` : clean,
             }));
           }
         } catch (e) {
-          console.warn('Transcript AI refinement notice:', e);
+          console.warn('Transcript transcription notice:', e);
         } finally {
-          setIsRefiningTranscript(false);
+          setIsTranscribing(false);
         }
       }
     })();
@@ -638,9 +575,8 @@ useEffect(() => {
     isRecordingRef.current = false;
     finalizeInFlightRef.current = false;
     serenVoice.stop();
-    recognizerRef.current?.stop();
     void activeAudioRecorder.stop().catch(() => {});
-    refinedPartsRef.current.clear();
+    transcribedPartsRef.current.clear();
     try {
       localStorage.removeItem('seren_cambridge_progress');
       localStorage.removeItem('seren_diag_progress');
@@ -683,15 +619,15 @@ useEffect(() => {
     setIsAnalyzing(true);
     soundFX.playChime('start');
 
-    // Wait (bounded) for any in-flight/queued Whisper refinement so the
-    // evaluation sees the final transcript, not a pre-refinement draft.
+    // Wait (bounded) for any in-flight/queued Whisper transcription so the
+    // evaluation sees the final transcript, not a pre-transcription draft.
     // Local Whisper on a 2-minute Part 2 answer (possibly queued behind
     // earlier parts) can take well over the old 20s cap.
     await Promise.race([
       finalizePromiseRef.current,
       new Promise(resolve => setTimeout(resolve, 45000)),
     ]);
-    // Snap the freshest transcripts after the awaited refinement
+    // Snap the freshest transcripts after the awaited transcription
     const finalTranscripts = transcriptsRef.current;
 
     const stages = [
@@ -1179,31 +1115,15 @@ useEffect(() => {
                       <span className="text-[11px] text-[#6272a4]">
                         {currentTranscript.split(/\s+/).filter(Boolean).length} words
                       </span>
-                      {isRefiningTranscript && (
+                      {isTranscribing && (
                         <span className="px-2 py-0.5 rounded-full bg-[#bd93f9]/20 border border-[#bd93f9]/50 text-[#bd93f9] text-[10px] font-semibold flex items-center gap-1 animate-pulse">
                           <Sparkles className="w-3 h-3 animate-spin" style={{ animationDuration: '2s' }} />
-                          AI Multimodal Audio Refining...
+                          Transcribing your speech...
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-1 text-[11px]">
-                      <span className="text-[#6272a4] text-[10px] uppercase font-mono mr-1">Mic Accent:</span>
-                      {SUPPORTED_SPEECH_LOCALES.slice(0, 5).map((acc) => (
-                        <button
-                          key={acc.code}
-                          type="button"
-                          onClick={() => handleLanguageChange(acc.code)}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors ${
-                            selectedLanguage === acc.code
-                              ? 'bg-[#bd93f9]/25 border-[#bd93f9] text-[#bd93f9]'
-                              : 'bg-[#21222c] border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2]'
-                          }`}
-                          title={acc.name}
-                        >
-                          {acc.flag} {acc.code.replace('en-', '')}
-                        </button>
-                      ))}
                       {currentTranscript && (
                         <button
                           type="button"
@@ -1217,16 +1137,23 @@ useEffect(() => {
                     </div>
                   </div>
 
+                  {/* Transcript box: shows the live mic equalizer while recording
+                      (Whisper only transcribes AFTER stop) */}
                   <div className="relative">
                     <textarea
                       id={`transcript-input-${currentQ.id}`}
                       rows={currentQ.part === 2 ? 7 : 5}
                       value={transcriptDisplayValue}
                       readOnly
-                      placeholder="Your words will transcribe here as you speak. Press Show Hint to add a guiding sentence without overwriting the spoken transcript."
+                      placeholder="Your words will appear here after you stop speaking — Whisper transcribes your recording. Press Show Hint to add a guiding sentence without overwriting the spoken transcript."
                       className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50 focus:border-[#bd93f9] resize-y overflow-auto"
                       style={{ maxHeight: currentQ.part === 2 ? '280px' : '220px', scrollBehavior: 'smooth' }}
                     />
+                    {isRecording && (
+                      <div className="absolute inset-0 rounded-2xl bg-[#21222c]/95 border border-[#44475a] flex items-center justify-center px-4">
+                        <MicEqualizer active />
+                      </div>
+                    )}
                   </div>
                 </div>
 

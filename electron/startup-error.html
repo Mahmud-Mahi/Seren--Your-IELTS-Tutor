@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Seren — startup problem</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #282a36;
+        color: #f8f8f2;
+        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .card {
+        max-width: 620px;
+        padding: 34px 36px;
+        border: 1px solid #44475a;
+        border-radius: 16px;
+        background: #21222c;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 21px;
+        font-weight: 700;
+      }
+      .msg {
+        margin: 0 0 14px;
+        font-size: 14.5px;
+        line-height: 1.6;
+        color: #ffb86c;
+      }
+      pre {
+        margin: 0 0 16px;
+        padding: 12px 14px;
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #9aa0b5;
+        background: #282a36;
+        border: 1px solid #343746;
+        border-radius: 10px;
+      }
+      .hint {
+        margin: 16px 0 0;
+        font-size: 12px;
+        color: #7b8199;
+        word-break: break-all;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      button {
+        padding: 10px 18px;
+        font-size: 13.5px;
+        font-weight: 600;
+        font-family: inherit;
+        color: #282a36;
+        background: #8be9fd;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      button.ghost {
+        color: #f8f8f2;
+        background: transparent;
+        border: 1px solid #44475a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Seren could not start</h1>
+      <p class="msg" id="message">An unexpected error occurred.</p>
+      <pre id="detail"></pre>
+      <div class="row">
+        <button id="retry">Try again</button>
+        <button id="log" class="ghost">Open log file</button>
+      </div>
+      <p class="hint" id="logPath"></p>
+    </div>
+
+    <script>
+      // Values arrive as query parameters from electron/main.cjs.
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var message = params.get('message');
+        var detail = params.get('detail');
+        var logPath = params.get('log');
+
+        if (message) document.getElementById('message').textContent = message;
+        if (detail) document.getElementById('detail').textContent = detail;
+        else document.getElementById('detail').remove();
+        if (logPath) document.getElementById('logPath').textContent = 'Log: ' + logPath;
+        else document.getElementById('logPath').remove();
+
+        var api = window.serenDesktop || {};
+        document.getElementById('retry').addEventListener('click', function () {
+          if (api.retryBoot) api.retryBoot();
+        });
+        document.getElementById('log').addEventListener('click', function () {
+          if (api.openLogFile) api.openLogFile();
+        });
+      })();
+    </script>
+  </body>
+</html>

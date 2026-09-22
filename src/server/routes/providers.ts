@@ -1,7 +1,21 @@
 import type express from 'express';
-import { runtimeConfig, saveStoredSettings, ttsEnabled } from '../config';
+import {
+  ASSEMBLYAI_SPEECH_MODELS,
+  DEEPGRAM_STT_MODELS,
+  GROQ_STT_MODELS,
+  STT_ENGINES,
+  assemblyAiApiKey,
+  deepgramApiKey,
+  runtimeConfig,
+  saveStoredSettings,
+  sttEngine,
+  sttModelFor,
+  ttsEnabled,
+  type SttEngine,
+} from '../config';
 import { getProviders, isProviderReachable, fetchWithTimeout, clearProviderCaches } from '../llm';
 import { defaultTtsVoice, sanitizeVoice } from '../tts';
+import { describeSttEngines } from '../stt-providers';
 
 export function registerProviderRoutes(app: express.Express): void {
   // Provider status (used by the settings UI)
@@ -34,6 +48,7 @@ export function registerProviderRoutes(app: express.Express): void {
         priority: (process.env.PROVIDER_PRIORITY || 'local,ollama,groq').split(',').map((s) => s.trim()),
         providers: results,
         tts: { enabled: ttsEnabled(), voice: defaultTtsVoice() },
+        stt: { engine: sttEngine(), engines: await describeSttEngines() },
       });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'status check failed' });
@@ -78,7 +93,7 @@ export function registerProviderRoutes(app: express.Express): void {
   });
   app.post('/api/providers/configure', async (req, res) => {
     try {
-      const { pinnedProvider, groqApiKey, ttsVoice, ttsEnabled: enableTts, models, endpoint } = req.body || {};
+      const { pinnedProvider, groqApiKey, assemblyAiApiKey: assemblyKey, deepgramApiKey: deepgramKey, sttEngine: sttEngineSel, sttModels, sttEndpoint, ttsVoice, ttsEnabled: enableTts, models, endpoint } = req.body || {};
 
     // Custom OpenAI-compatible endpoint (base URL and/or API key) per provider
     if (endpoint !== undefined) {
@@ -109,6 +124,42 @@ export function registerProviderRoutes(app: express.Express): void {
       }
       // New backend → drop every cached model/cooldown assumption
       clearProviderCaches();
+    }
+
+    // Custom STT endpoint (base URL and/or API key) per engine
+    if (sttEndpoint !== undefined) {
+      if (typeof sttEndpoint !== 'object' || sttEndpoint === null) {
+        return res.status(400).json({ success: false, error: 'sttEndpoint must be an object {engine, baseUrl?, apiKey?}' });
+      }
+      const eng = String((sttEndpoint as any).engine || '');
+      if (!['groq', 'assemblyai', 'deepgram'].includes(eng)) {
+        return res.status(400).json({ success: false, error: `Unknown STT engine '${eng}'` });
+      }
+      if (!runtimeConfig.endpoints[eng]) runtimeConfig.endpoints[eng] = {};
+      if ((sttEndpoint as any).baseUrl !== undefined) {
+        const raw = String((sttEndpoint as any).baseUrl).trim();
+        if (raw === '') {
+          delete runtimeConfig.endpoints[eng].baseUrl;
+        } else {
+          const normalized = raw.replace(/\/+$/, '');
+          if (!/^https?:\/\/.+/i.test(normalized)) {
+            return res.status(400).json({ success: false, error: 'baseUrl must start with http:// or https://' });
+          }
+          runtimeConfig.endpoints[eng].baseUrl = normalized;
+        }
+      }
+      if ((sttEndpoint as any).apiKey !== undefined) {
+        const key = String((sttEndpoint as any).apiKey);
+        if (key === '') {
+          delete runtimeConfig.endpoints[eng].apiKey;
+        } else {
+          runtimeConfig.endpoints[eng].apiKey = key;
+          // Also set env var so groqSttApiKey()/assemblyAiApiKey()/deepgramApiKey() pick it up
+          if (eng === 'groq') process.env.GROQ_API_KEY = key;
+          else if (eng === 'assemblyai') process.env.ASSEMBLYAI_API_KEY = key;
+          else if (eng === 'deepgram') process.env.DEEPGRAM_API_KEY = key;
+        }
+      }
     }
 
     if (models !== undefined) {
@@ -156,6 +207,42 @@ export function registerProviderRoutes(app: express.Express): void {
         process.env.GROQ_API_KEY = key;
       }
 
+      if (typeof assemblyKey === 'string' && assemblyKey.trim()) {
+        const key = assemblyKey.trim();
+        // Validate by listing transcripts; AssemblyAI returns 401 for a bad key.
+        try {
+          const check = await fetchWithTimeout(
+            'https://api.assemblyai.com/v2/transcript?limit=1',
+            { headers: { authorization: key } },
+            8000
+          );
+          if (!check.ok) {
+            return res.status(400).json({ success: false, error: `AssemblyAI rejected the key (HTTP ${check.status})` });
+          }
+        } catch (e: any) {
+          return res.status(400).json({ success: false, error: `Could not reach AssemblyAI: ${e?.message || e}` });
+        }
+        process.env.ASSEMBLYAI_API_KEY = key;
+      }
+
+      if (typeof deepgramKey === 'string' && deepgramKey.trim()) {
+        const key = deepgramKey.trim();
+        // Validate by listing models; Deepgram returns 401 for a bad key.
+        try {
+          const check = await fetchWithTimeout(
+            'https://api.deepgram.com/v1/projects',
+            { headers: { Authorization: `Token ${key}` } },
+            8000
+          );
+          if (!check.ok) {
+            return res.status(400).json({ success: false, error: `Deepgram rejected the key (HTTP ${check.status})` });
+          }
+        } catch (e: any) {
+          return res.status(400).json({ success: false, error: `Could not reach Deepgram: ${e?.message || e}` });
+        }
+        process.env.DEEPGRAM_API_KEY = key;
+      }
+
       if (ttsVoice !== undefined) {
         const v = sanitizeVoice(ttsVoice);
         if (!v) return res.status(400).json({ success: false, error: 'Invalid voice id' });
@@ -166,9 +253,56 @@ export function registerProviderRoutes(app: express.Express): void {
         runtimeConfig.ttsEnabled = enableTts;
       }
 
+      if (sttEngineSel !== undefined) {
+        if (sttEngineSel === null || sttEngineSel === 'auto') {
+          runtimeConfig.sttEngine = null;
+        } else if (typeof sttEngineSel === 'string' && (STT_ENGINES as readonly string[]).includes(sttEngineSel)) {
+          runtimeConfig.sttEngine = sttEngineSel as SttEngine;
+        } else {
+          return res.status(400).json({ success: false, error: 'sttEngine must be local, groq, assemblyai or deepgram' });
+        }
+      }
+
+      if (sttModels !== undefined) {
+        if (typeof sttModels !== 'object' || sttModels === null || Array.isArray(sttModels)) {
+          return res.status(400).json({ success: false, error: 'sttModels must be an object of engine -> model' });
+        }
+        for (const [engineKey, modelId] of Object.entries(sttModels)) {
+          if (!(STT_ENGINES as readonly string[]).includes(engineKey)) {
+            return res.status(400).json({ success: false, error: `Unknown STT engine '${engineKey}'` });
+          }
+          if (modelId === '' || modelId === 'auto') {
+            delete runtimeConfig.sttModels[engineKey];
+            continue;
+          }
+          if (typeof modelId !== 'string') {
+            return res.status(400).json({ success: false, error: `Invalid STT model for ${engineKey}` });
+          }
+          const clean = modelId.trim();
+          if (engineKey === 'groq' && !(GROQ_STT_MODELS as readonly string[]).includes(clean)) {
+            return res.status(400).json({ success: false, error: `Unknown Groq STT model '${clean}'` });
+          }
+          if (engineKey === 'assemblyai' && !(ASSEMBLYAI_SPEECH_MODELS as readonly string[]).includes(clean)) {
+            return res.status(400).json({ success: false, error: `Unknown AssemblyAI model '${clean}'` });
+          }
+          if (engineKey === 'deepgram' && !(DEEPGRAM_STT_MODELS as readonly string[]).includes(clean)) {
+            return res.status(400).json({ success: false, error: `Unknown Deepgram model '${clean}'` });
+          }
+          if (engineKey === 'local') {
+            delete runtimeConfig.sttModels[engineKey];
+            continue;
+          }
+          runtimeConfig.sttModels[engineKey] = clean;
+        }
+      }
+
       // Durable-save the full snapshot so restarts keep every preference
       saveStoredSettings({
         groqApiKey: process.env.GROQ_API_KEY || undefined,
+        assemblyAiApiKey: process.env.ASSEMBLYAI_API_KEY || undefined,
+        deepgramApiKey: process.env.DEEPGRAM_API_KEY || undefined,
+        sttEngine: runtimeConfig.sttEngine,
+        sttModels: runtimeConfig.sttModels,
         pinnedProvider: runtimeConfig.pinnedProvider,
         modelOverrides: runtimeConfig.modelOverrides,
         ttsVoice: runtimeConfig.ttsVoice || undefined,
@@ -176,7 +310,7 @@ export function registerProviderRoutes(app: express.Express): void {
         endpoints: runtimeConfig.endpoints,
       });
 
-      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsEnabled: ttsEnabled() } });
+      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsEnabled: ttsEnabled(), sttEngine: sttEngine(), sttModels: { groq: sttModelFor('groq'), assemblyai: sttModelFor('assemblyai'), deepgram: sttModelFor('deepgram') } } });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'configuration failed' });
     }

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { MicEqualizer } from './MicEqualizer';
 
 interface ChatInputBoxProps {
   value: string;
@@ -14,15 +15,15 @@ interface ChatInputBoxProps {
   /** Extra classes for the wrapping element (usually `flex-1`). */
   containerClassName?: string;
   /**
-   * Copilot-style inline suggestion (e.g. the Whisper-refined version of the
-   * draft). Shown as gray ghost text inside the box; the real value is only
-   * replaced when the suggestion is accepted. Tab accepts, Esc dismisses.
+   * When true the composer shows a live ChatGPT-style mic equalizer instead of
+   * the textarea (speech is transcribed by Whisper only AFTER the user stops).
    */
-  ghostSuggestion?: string | null;
-  /** Called when the user accepts the ghost suggestion (Tab / button). */
-  onGhostAccept?: () => void;
-  /** Called when the user dismisses the ghost suggestion (Esc / typing). */
-  onGhostDismiss?: () => void;
+  isRecording?: boolean;
+  /**
+   * Small hint line shown under the equalizer while recording (e.g. "Listening —
+   * press stop, then Whisper transcribes your speech").
+   */
+  recordingHint?: string;
 }
 
 /**
@@ -45,9 +46,8 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
   inputId,
   autoFocus,
   containerClassName = '',
-  ghostSuggestion,
-  onGhostAccept,
-  onGhostDismiss,
+  isRecording = false,
+  recordingHint,
 }) => {
   const ref = useRef<HTMLTextAreaElement>(null);
   // True when the latest value change came from the user typing/pasting
@@ -56,12 +56,7 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
   const prevValueRef = useRef(value);
   const prevHadTextRef = useRef(value !== '');
 
-  const hasGhost = Boolean(ghostSuggestion && ghostSuggestion.trim());
-
-  // Auto-resize the textarea to fit the content, capped at maxRows. While a
-  // ghost suggestion is pending, size to the LONGER of draft/suggestion so the
-  // ghost text is never clipped by the box.
-  const sizeText = hasGhost && ghostSuggestion!.length > value.length ? ghostSuggestion! : value;
+  // Auto-resize the textarea to fit the content, capped at maxRows.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -78,7 +73,7 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
     el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [sizeText, maxRows]);
+  }, [value, maxRows, isRecording]);
 
   // Cursor sync: keep the caret glued to the end when text arrives from an
   // external source (live speech), but never fight the user's native caret.
@@ -115,28 +110,11 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
   }, [autoFocus, disabled]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    // Typing while a suggestion is pending means the user is editing their own
-    // draft — the ghost is stale the moment a character lands.
-    if (hasGhost) onGhostDismiss?.();
     userEditRef.current = true;
     onChange(e.target.value);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Copilot-style ghost handling takes precedence over everything else:
-    // Tab accepts the suggestion, Esc keeps the user's own text.
-    if (hasGhost) {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        onGhostAccept?.();
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onGhostDismiss?.();
-        return;
-      }
-    }
     // Enter sends; Shift+Enter makes a newline; IME composing Enter is ignored
     // so CJK/romaji input methods can confirm candidates without sending.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -145,20 +123,25 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
     }
   };
 
+  // Recording mode: the composer becomes a ChatGPT/Gemini-style live mic
+  // equalizer — no text is shown/typed while the mic is open (Whisper only
+  // transcribes AFTER the user presses stop).
+  if (isRecording) {
+    return (
+      <div className={`flex flex-col ${containerClassName}`}>
+        <div className="flex items-center w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#282a36] border border-[#44475a] overflow-hidden">
+          <MicEqualizer active />
+        </div>
+        {recordingHint && (
+          <p className="pt-1.5 px-1 text-[10px] text-[#6272a4]">{recordingHint}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col ${containerClassName}`}>
       <div className="relative flex items-end w-full">
-        {/* Ghost suggestion overlay — gray italic preview of what the box will
-            contain if accepted (VS Code Copilot style). The textarea's own
-            text is transparent while the ghost is pending. */}
-        {hasGhost && (
-          <div
-            aria-hidden
-            className="absolute inset-0 px-4 py-3 rounded-2xl text-xs sm:text-sm leading-relaxed text-[#6272a4] italic whitespace-pre-wrap break-words overflow-hidden pointer-events-none max-h-[140px]"
-          >
-            {ghostSuggestion}
-          </div>
-        )}
         <textarea
           ref={ref}
           id={inputId}
@@ -168,30 +151,10 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
           disabled={disabled}
           rows={1}
           data-enable-grammarly="false"
-          placeholder={hasGhost ? '' : placeholder}
-          style={hasGhost ? { color: 'transparent', caretColor: '#f8f8f2' } : undefined}
+          placeholder={placeholder}
           className="w-full resize-none overflow-hidden leading-relaxed min-h-[44px] max-h-[140px] px-4 py-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50 disabled:opacity-60 disabled:cursor-not-allowed"
         />
       </div>
-      {hasGhost && (
-        <div className="flex items-center gap-2 pt-1.5 px-1 text-[10px]">
-          <span className="text-[#bd93f9]">✦ AI refined</span>
-          <button
-            type="button"
-            onClick={onGhostAccept}
-            className="px-2 py-0.5 rounded-md border border-[#44475a] text-[#50fa7b] hover:bg-[#44475a] transition-colors cursor-pointer"
-          >
-            Use it <span className="opacity-60">(Tab)</span>
-          </button>
-          <button
-            type="button"
-            onClick={onGhostDismiss}
-            className="px-2 py-0.5 rounded-md border border-transparent text-[#6272a4] hover:bg-[#44475a] hover:text-[#f8f8f2] transition-colors cursor-pointer"
-          >
-            Keep mine <span className="opacity-60">(Esc)</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 };

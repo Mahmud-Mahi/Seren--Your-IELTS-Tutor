@@ -1,8 +1,9 @@
 import fs from 'fs';
 import type express from 'express';
-import { SETTINGS_FILE, runtimeConfig, BOOT_GROQ_API_KEY, ttsEnabled } from '../config';
+import { SETTINGS_FILE, runtimeConfig, BOOT_GROQ_API_KEY, BOOT_ASSEMBLYAI_API_KEY, ttsEnabled, sttEngine } from '../config';
 import { getProviders, clearProviderCaches } from '../llm';
 import { defaultTtsVoice } from '../tts';
+import { describeSttEngines } from '../stt-providers';
 
 export function registerSystemRoutes(app: express.Express): void {
   // Health check endpoint
@@ -14,6 +15,7 @@ export function registerSystemRoutes(app: express.Express): void {
       hasApiKey: anyUsable,
       providers: providers.map((p) => ({ key: p.key, label: p.label, baseUrl: p.baseUrl })),
       tts: { enabled: ttsEnabled(), voice: defaultTtsVoice() },
+      stt: { engine: sttEngine(), engines: await describeSttEngines() },
       time: new Date().toISOString(),
     });
   });
@@ -31,7 +33,10 @@ export function registerSystemRoutes(app: express.Express): void {
       runtimeConfig.endpoints = {};
       runtimeConfig.ttsVoice = null;
       runtimeConfig.ttsEnabled = null;
+      runtimeConfig.sttEngine = null;
+      runtimeConfig.sttModels = {};
       process.env.GROQ_API_KEY = BOOT_GROQ_API_KEY;
+      process.env.ASSEMBLYAI_API_KEY = BOOT_ASSEMBLYAI_API_KEY;
       clearProviderCaches();
       res.json({ success: true, message: 'All settings restored to defaults' });
     } catch (err: any) {

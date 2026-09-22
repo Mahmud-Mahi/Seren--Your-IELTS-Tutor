@@ -57,7 +57,7 @@ Two practice modes:
 - **Interview Mode** — Structured IELTS Part 1 simulation with random topics
 
 ### 🔊 Real-Time Voice
-- **Speech-to-Text**: Local offline Whisper (sherpa-onnx) + browser Web Speech API
+- **Speech-to-Text**: Local offline Whisper (sherpa-onnx) with a live mic equalizer in the input box
 - **Text-to-Speech**: Microsoft Edge Neural TTS with browser fallback
 - Seren speaks questions aloud and listens to your answers
 
@@ -166,6 +166,108 @@ LLM_API_KEY=none
 
 ---
 
+## 🖥️ Desktop App
+
+Seren also runs as a **standalone desktop app** — its own window and launcher icon, no terminal and no browser tab. Electron is only a *shell*: it boots the exact same Express backend (`dist/server.cjs`) on **Electron's built-in Node runtime**, so no system Node.js is needed at runtime, then opens the UI at `http://127.0.0.1:<port>`.
+
+```bash
+npm run app:start     # build + open the desktop window
+npm run app:dev       # desktop window attached to a running `npm run dev` (hot reload)
+npm run dev:watch     # auto-restart the backend when src/server/* changes
+```
+
+The packaged desktop executable also provides command-line information without
+opening the application window:
+
+```bash
+seren --version       # print the installed version
+seren --help          # show command-line options
+```
+
+For an unpacked Linux build, run `./release/linux-unpacked/seren --version` or
+`./release/linux-unpacked/seren --help`.
+
+### Build installers
+
+```bash
+npm run app:dist      # Linux   → release/seren_1.1.0_amd64.deb
+npm run app:dist:win  # Windows → release/Seren-Setup-1.1.0.exe  (cross-built with wine)
+npm run app:dist:all  # both in one go
+npm run app:inspect   # list what actually got packaged (files, deps, secrets, size)
+npm run app:dist:mac  # macOS .dmg — must be run ON macOS
+```
+
+Each build is also **runnable without installing**: `./release/linux-unpacked/seren`.
+
+> **First run note:** Electron 44 ships its downloader as a separate bin (no `postinstall`), so after `npm install` run `npx install-electron` once if `electron .` complains about a missing binary. Building installers does not need it — electron-builder fetches Electron itself.
+
+### Install (Debian / Ubuntu / Kali)
+
+```bash
+sudo apt install ./release/seren_*_amd64.deb       # menu entry + /usr/bin/seren
+sudo apt remove seren                              # uninstall (your data is preserved)
+```
+
+Verify the generated dependencies resolve on your distro *before* installing:
+
+```bash
+dpkg-deb -I release/*.deb | grep -A2 Depends
+apt-get -s install ./release/*.deb        # read-only simulation
+```
+
+### Where your data lives
+
+The installed app bundle is read-only, so everything writable lives in the OS app-data folder:
+
+| Platform | Folder |
+|----------|--------|
+| Linux | `~/.config/Seren/` |
+| Windows | `%APPDATA%\Seren\` |
+| macOS | `~/Library/Application Support/Seren/` |
+
+| File | Contents |
+|------|----------|
+| `seren-settings.json` | API keys, provider pinning, models, voice (on first desktop launch it is **imported once** from the project root if present) |
+| `seren-server.log` | Full startup + backend log — the first place to look when something fails (also in the app's Help menu) |
+| `models/` | Downloaded Whisper STT model (~113 MB, fetched on first use) |
+| `.env` | Optional: put `GROQ_API_KEY`, `LLM_BASE_URL`, `OLLAMA_BASE_URL`, … here for the desktop app |
+
+### Moving your browser data into the desktop app
+
+The app keeps onboarding/profile/preferences in localStorage, which is **per-browser** — the desktop app starts with a fresh profile even if you used Seren in Chrome. Your **settings file** (API keys, provider, voice) is imported automatically on first launch.
+
+The easiest way to carry the rest over is built into the app: **Settings → Your Data → Export backup** in the browser app, then **Import backup** in the desktop app. The backup is a plain JSON file containing every `seren_*` key (profile, reports, lessons, chats, preferences). For raw LevelDB extraction there are two one-time scripts:
+
+```bash
+node scripts/migrate-browser-data.cjs    # extract seren_* data from Chrome/Chromium/Brave/Edge (read-only)
+node scripts/import-browser-data.cjs --port 9444   # inject into the running desktop app + verify
+```
+
+Run the second command while the desktop app is open **with a debug port**, e.g.:
+
+```bash
+./release/linux-unpacked/seren --remote-debugging-port=9444
+```
+
+It reloads the window and verifies every key, so you see exactly what was carried over (profile, preferences, history). The extractor parses Chrome's LevelDB properly — 32 KB log block framing, snappy-compressed `.ldb` table blocks, prefix-compressed keys — and also picks up data the desktop app wrote under an old `http://127.0.0.1:<port>` origin.
+
+### Desktop behaviour worth knowing
+
+- **Stable origin** — the window always loads the fixed `seren://app` origin, which the shell transparently proxies to whichever loopback port the backend picked. localStorage is origin-scoped, so chat history, reports and lessons can never be stranded by a port change. Also new: **Settings → Text & UI Size** (persisted whole-UI zoom; `Ctrl +` / `Ctrl −` work too) and **Settings → Your Data** (export/import a JSON backup of everything).
+- **Ports** — the app prefers `3000` and automatically falls back to a free port if it is busy, so the `EADDRINUSE` failure can no longer block startup. If a Seren server is already running on 3000, the window attaches to it instead of starting a second one.
+- **Network** — the desktop shell binds the backend to `127.0.0.1` only, so your API keys are never reachable from the LAN (the browser workflow keeps the previous `0.0.0.0` behaviour).
+- **Closing the window quits the app** (all platforms), including the backend process — no invisible server left behind.
+- **An LLM is still required** (Groq free tier or a local Ollama/LM Studio). The desktop app does not remove that; configure it in Settings or `.env`.
+- **Offline speech-to-text needs `ffmpeg` on `PATH`** — the local Whisper engine decodes through it. Cloud STT (Groq Whisper, the default in Settings) needs no external binary, and Seren falls back automatically when `ffmpeg` is missing.
+- **Linux sandbox error on launch?** (`The SUID sandbox helper binary was found, but is not configured correctly`) run the unpacked build with `--no-sandbox`, or install the `.deb`, which sets the sandbox helper up correctly.
+- **Windows** shows a SmartScreen warning on first run because the installer is unsigned; add a code-signing certificate under `win.signtoolOptions` to remove it.
+
+### Extending the desktop app
+
+`electron/main.cjs` is the shell (window, ports, permissions, shutdown) and `electron-builder.yml` decides what ships. Both are written so normal development needs **no** packaging changes — adding React code, backend routes, question data or ordinary npm dependencies requires nothing at all. For the two cases that do need a line (a new on-disk runtime asset, or a native module), see [`electron-resources/README.md`](electron-resources/README.md).
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -175,7 +277,7 @@ LLM_API_KEY=none
 │  │Diagnostic│ │  Score   │ │  Lesson  │ │   1v1    │     │
 │  │   Test   │ │  Report  │ │  Studio  │ │   Chat   │     │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘     │
-│                    Web Speech API                        │
+│          Mic equalizer → MediaRecorder (Whisper STT)     │
 └─────────────────────────┬────────────────────────────────┘
                           │ HTTP / REST
 ┌─────────────────────────┴────────────────────────────────┐
@@ -258,7 +360,7 @@ LLM_API_KEY=none
 | **Build** | Vite 6, esbuild |
 | **Backend** | Express.js, Node.js |
 | **LLM** | OpenAI-compatible API (Local/Ollama/Groq) |
-| **STT** | sherpa-onnx Whisper (local), Web Speech API |
+| **STT** | sherpa-onnx Whisper (local) + live mic equalizer |
 | **TTS** | Microsoft Edge Neural TTS, SpeechSynthesis |
 | **PWA** | Service Worker, Web App Manifest |
 

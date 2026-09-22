@@ -112,6 +112,21 @@ class SpeechEngine {
   private selectedVoice: SpeechSynthesisVoice | null = null;
   private isSpeaking = false;
   private currentSpeakingText = '';
+  /**
+   * Sequential-duplicate guard. Effects and safety-net timers across the app
+   * can request the SAME phrase again the moment the previous utterance
+   * finishes (StrictMode remounts, view switches, overlapping onEnd fires) —
+   * repeating her own sentence sounds like a voice glitch. Anything identical
+   * requested within this window is skipped.
+   */
+  private lastFinishedText = '';
+  private lastFinishedAt = 0;
+  private readonly DUPLICATE_SPEAK_COOLDOWN_MS = 1500;
+  /** Stamps the finished utterance so an immediate identical repeat is dropped. */
+  private markFinished(text: string) {
+    this.lastFinishedText = text;
+    this.lastFinishedAt = Date.now();
+  }
   private keepAliveTimer: any = null;
   private pendingSpeakTimeout: any = null;
   private isUnlocked = false;
@@ -327,6 +342,7 @@ class SpeechEngine {
         }
         this.isSpeaking = false;
         this.currentSpeakingText = '';
+        this.markFinished(cleanedText);
         this.stopProgressLoop();
         this.activeServerSettle?.(true);
       };
@@ -363,6 +379,7 @@ class SpeechEngine {
         if (!this.isStale(gen)) {
           this.isSpeaking = false;
           this.currentSpeakingText = '';
+          this.markFinished(cleanedText);
           options?.onEnd?.();
         }
         resolve();
@@ -510,6 +527,18 @@ class SpeechEngine {
       return;
     }
 
+    // Same phrase finished moments ago and is requested again — skip the
+    // repeat instead of playing her own sentence a second time.
+    if (
+      cleaned !== '' &&
+      cleaned === this.lastFinishedText &&
+      Date.now() - this.lastFinishedAt < this.DUPLICATE_SPEAK_COOLDOWN_MS
+    ) {
+      this.queuedSpeakTask = null;
+      resolve();
+      return;
+    }
+
     // Always prefer the neural (Jenny) voice: attempt the server on every
     // utterance. A single transient failure must not silently downgrade
     // subsequent speech to the browser voice for a cooldown window.
@@ -640,6 +669,7 @@ class SpeechEngine {
         utterance.onend = () => {
           this.isSpeaking = false;
           this.currentSpeakingText = '';
+          this.markFinished(text);
           this.stopKeepAlive();
           this.stopProgressLoop();
           options?.onEnd?.();
@@ -772,25 +802,6 @@ class SpeechEngine {
 
 export const serenVoice = new SpeechEngine();
 
-export interface SpeechLocaleOption {
-  code: string;
-  name: string;
-  flag: string;
-}
-
-export const SUPPORTED_SPEECH_LOCALES: SpeechLocaleOption[] = [
-  { code: 'en-US', name: 'English (US & International)', flag: '🇺🇸' },
-  { code: 'en-GB', name: 'English (British / UK)', flag: '🇬🇧' },
-  { code: 'en-IN', name: 'English (India & South Asia)', flag: '🇮🇳' },
-  { code: 'en-AU', name: 'English (Australia)', flag: '🇦🇺' },
-  { code: 'en-CA', name: 'English (Canada)', flag: '🇨🇦' },
-  { code: 'en-NZ', name: 'English (New Zealand)', flag: '🇳🇿' },
-  { code: 'en-IE', name: 'English (Ireland)', flag: '🇮🇪' },
-  { code: 'en-SG', name: 'English (Singapore & SE Asia)', flag: '🇸🇬' },
-  { code: 'en-PH', name: 'English (Philippines)', flag: '🇵🇭' },
-  { code: 'en-ZA', name: 'English (South Africa)', flag: '🇿🇦' },
-];
-
 // Audio Recorder for High-Fidelity Multimodal AI Speech-to-Text
 export class AudioRecorderController {
   private mediaRecorder: MediaRecorder | null = null;
@@ -800,11 +811,23 @@ export class AudioRecorderController {
   private analyser: AnalyserNode | null = null;
   private animationFrameId: number | null = null;
   private onLevelUpdate?: (level: number) => void;
+  // Live loudness subscribers — used by the mic equalizer UI (ChatGPT-style
+  // waveform in the input box). Notified every animation frame with a
+  // normalized 0..1 level while a recording session is armed.
+  private levelListeners = new Set<(level: number) => void>();
   // Generation counter: bumped by every start()/stop() so a stop() that lands
   // while getUserMedia is still opening can invalidate the in-flight start().
   private startGeneration = 0;
 
   public isRecording = false;
+
+  /** Subscribe to real-time mic loudness (0..1). Returns an unsubscribe fn. */
+  public addLevelListener(listener: (level: number) => void): () => void {
+    this.levelListeners.add(listener);
+    return () => {
+      this.levelListeners.delete(listener);
+    };
+  }
 
   async start(onLevel?: (level: number) => void): Promise<boolean> {
     const generation = ++this.startGeneration;
@@ -860,10 +883,10 @@ export class AudioRecorderController {
         return false;
       }
 
-      // Setup audio analyzer for realistic soundwave level monitoring
+      // Setup audio analyzer for the live mic equalizer / level monitoring
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx && this.onLevelUpdate) {
+        if (AudioCtx) {
           this.audioContext = new AudioCtx();
           const source = this.audioContext.createMediaStreamSource(this.stream);
           this.analyser = this.audioContext.createAnalyser();
@@ -883,6 +906,11 @@ export class AudioRecorderController {
             const avg = sum / bufferLength;
             const normalized = Math.min(1, avg / 100);
             this.onLevelUpdate?.(normalized);
+            for (const listener of Array.from(this.levelListeners)) {
+              try {
+                listener(normalized);
+              } catch (e) {}
+            }
             this.animationFrameId = requestAnimationFrame(monitorLevel);
           };
 
@@ -985,13 +1013,29 @@ export class AudioRecorderController {
 
 export const activeAudioRecorder = new AudioRecorderController();
 
-// Whisper STT client helper — sends recorded audio to server, gets text back.
-// Web Speech API draft is used as fallback if Whisper fails.
-export async function transcribeAudioWithAI(params: {
+// STT client helper — records are posted to the server and transcribed by the
+// selected engine (local Sherpa-ONNX, Groq Cloud, or AssemblyAI). Cloud credit
+// exhaustion / missing keys automatically fall back to local on the server.
+// Returns '' when nothing could be transcribed.
+export interface TranscribeResult {
+  text: string;
+  engine?: string;
+  fallback?: boolean;
+  fallbackReason?: string;
+}
+
+export async function transcribeAudio(params: {
   audioBase64?: string;
   mimeType?: string;
-  draftTranscript?: string;
 }): Promise<string> {
+  const result = await transcribeAudioDetailed(params);
+  return result.text;
+}
+
+export async function transcribeAudioDetailed(params: {
+  audioBase64?: string;
+  mimeType?: string;
+}): Promise<TranscribeResult> {
   try {
     const res = await fetch('/api/transcribe-audio', {
       method: 'POST',
@@ -1000,326 +1044,19 @@ export async function transcribeAudioWithAI(params: {
     });
     const data = await res.json();
     if (data.success && data.transcript) {
-      return data.transcript.trim();
+      if (data.fallback) console.warn('STT fallback to local:', data.fallbackReason || 'cloud unavailable');
+      return {
+        text: String(data.transcript).trim(),
+        engine: data.engine,
+        fallback: Boolean(data.fallback),
+        fallbackReason: data.fallbackReason,
+      };
+    }
+    if (!data.success && data.error) {
+      console.warn('STT error:', data.error);
     }
   } catch (e) {
-    console.warn('Whisper STT fallback:', e);
+    console.warn('STT request failed:', e);
   }
-  return params.draftTranscript?.trim() || '';
-}
-
-// Web Speech Recognition Controller with Live Streaming
-export interface SpeechRecognitionController {
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  reset: () => void;
-  setBaseTranscript: (text: string) => void;
-  setLanguage: (lang: string) => void;
-  isSupported: boolean;
-}
-
-export function createSpeechRecognizer(callbacks: {
-  onResult: (transcript: string, isFinal: boolean) => void;
-  onError?: (error: string) => void;
-  onStart?: () => void;
-  onEnd?: () => void;
-  initialText?: string;
-  lang?: string;
-}): SpeechRecognitionController {
-  const SpeechRecognition =
-    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    return {
-      start: () => {
-        callbacks.onError?.('Speech recognition is not supported in this browser. You can type your responses directly.');
-      },
-      stop: () => {},
-      abort: () => {},
-      reset: () => {},
-      setBaseTranscript: () => {},
-      setLanguage: () => {},
-      isSupported: false,
-    };
-  }
-
-  let recognition: any = null;
-  let isListening = false;
-  let shouldBeRecording = false;
-  let baseTranscript = (callbacks.initialText || '').trim();
-  let currentSessionFinal = '';
-  let currentLanguage = callbacks.lang || 'en-US';
-  let restartTimeout: any = null;
-  let restartAttempt = 0;
-  const RESTART_DELAYS = [200, 500, 1000, 2000];
-
-  // Watchdog: Chrome's recognizer sometimes dies silently mid-session (no
-  // onend/onerror — results just stop, e.g. ~60-90s into a long turn). We
-  // track liveness and hard-restart with a FRESH instance when that happens.
-  const WATCHDOG_IDLE_MS = 15000;
-  let watchdogTimer: any = null;
-  let lastActivityAt = Date.now();
-  let hardRestarting = false;
-  let hardRestartGuard: any = null;
-
-  const noteActivity = () => {
-    lastActivityAt = Date.now();
-  };
-
-  const mergeSessionFinal = () => {
-    if (currentSessionFinal) {
-      baseTranscript = [baseTranscript, currentSessionFinal]
-        .filter(Boolean)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      currentSessionFinal = '';
-    }
-  };
-
-  const clearHardRestartGuard = () => {
-    if (hardRestartGuard) {
-      clearTimeout(hardRestartGuard);
-      hardRestartGuard = null;
-    }
-    hardRestarting = false;
-  };
-
-  // Abort whatever exists and start a completely FRESH recognition instance.
-  // Reusing an instance after a silent death is unreliable — Chrome's
-  // SpeechRecognition enters a tainted state where .start() throws or does
-  // nothing at all. Crucially this does NOT fire onEnd/onStart callbacks, so
-  // the UI never flips out of its "recording" state during recovery.
-  const hardRestart = () => {
-    // The aborted instance may fire a late onend — suppress it so it cannot
-    // schedule a competing restart or re-merge finalized text
-    hardRestarting = true;
-    if (hardRestartGuard) clearTimeout(hardRestartGuard);
-    hardRestartGuard = setTimeout(() => {
-      hardRestartGuard = null;
-      hardRestarting = false;
-    }, 2500);
-
-    clearTimeout(restartTimeout);
-    restartTimeout = null;
-    mergeSessionFinal();
-
-    initRecognition(); // aborts the old instance and creates a fresh one
-    try {
-      recognition.start();
-      restartAttempt = 0;
-    } catch (e) {
-      console.warn('Speech recognition hard restart failed:', e);
-      restartAttempt++;
-    }
-    noteActivity();
-  };
-
-  const stopWatchdog = () => {
-    if (watchdogTimer) {
-      clearInterval(watchdogTimer);
-      watchdogTimer = null;
-    }
-  };
-
-  const startWatchdog = () => {
-    if (watchdogTimer) return;
-    watchdogTimer = setInterval(() => {
-      if (!shouldBeRecording) {
-        stopWatchdog();
-        return;
-      }
-      const idleMs = Date.now() - lastActivityAt;
-      if (isListening && idleMs > WATCHDOG_IDLE_MS) {
-        // Recognizer claims to be listening but produced nothing for a long
-        // time → Chrome's silent-death state
-        console.warn(
-          `Speech recognition watchdog: no results for ${Math.round(idleMs / 1000)}s — restarting with a fresh instance`
-        );
-        hardRestart();
-      } else if (!isListening && !restartTimeout && !hardRestarting && idleMs > 8000) {
-        // Should be recording, nothing is listening, and no restart was ever
-        // scheduled (start() threw on a tainted instance)
-        hardRestart();
-      }
-    }, 5000);
-  };
-
-  const bindRecognitionHandlers = () => {
-    if (!recognition) return;
-
-    recognition.onstart = () => {
-      isListening = true;
-      noteActivity();
-      callbacks.onStart?.();
-    };
-
-    recognition.onresult = (event: any) => {
-      noteActivity();
-      let sessionFinal = '';
-      let sessionInterim = '';
-
-      for (let i = 0; i < event.results.length; ++i) {
-        const res = event.results[i];
-        if (!res || !res[0]) continue;
-
-        const transcriptChunk = (res[0].transcript || '').trim();
-        if (res.isFinal) {
-          sessionFinal += (sessionFinal ? ' ' : '') + transcriptChunk;
-        } else {
-          sessionInterim += (sessionInterim ? ' ' : '') + transcriptChunk;
-        }
-      }
-
-      currentSessionFinal = sessionFinal;
-
-      // Cleanly combine base transcript + session finalized + interim hypothesis
-      const parts = [baseTranscript, sessionFinal, sessionInterim].filter(Boolean);
-      let combined = parts.join(' ').replace(/\s+/g, ' ').trim();
-
-      // Standard capitalization for first letters of sentences
-      combined = combined.replace(/(^\s*|\.\s+)([a-z])/g, (_match, sep, char) => `${sep}${char.toUpperCase()}`);
-
-      const isFinal = Boolean(event.results[event.results.length - 1]?.isFinal);
-      callbacks.onResult(combined, isFinal);
-    };
-
-    recognition.onerror = (event: any) => {
-      noteActivity();
-      console.warn('Speech recognition event note:', event.error);
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        shouldBeRecording = false;
-        isListening = false;
-        callbacks.onError?.('Microphone access blocked. Please check browser permissions.');
-      } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        callbacks.onError?.(event.error);
-      }
-    };
-
-    recognition.onend = () => {
-      isListening = false;
-
-      // A hard restart just aborted this instance — its late onend must not
-      // schedule a competing restart or re-merge finalized text
-      if (hardRestarting) return;
-
-      // If user is actively recording and the browser ended session on pause,
-      // create a FRESH recognition instance to avoid Chrome's tainted-instance bug
-      if (shouldBeRecording) {
-        mergeSessionFinal();
-        noteActivity();
-
-        clearTimeout(restartTimeout);
-        const delay = RESTART_DELAYS[Math.min(restartAttempt, RESTART_DELAYS.length - 1)];
-        restartTimeout = setTimeout(() => {
-          restartTimeout = null;
-          if (shouldBeRecording && !isListening) {
-            try {
-              // Destroy the old instance and create a fresh one — Chrome's
-              // SpeechRecognition sometimes enters a tainted state after
-              // auto-stop where .start() silently fails or throws, so
-              // reusing the same instance is unreliable.
-              initRecognition();
-              recognition.start();
-              restartAttempt = 0;
-            } catch (e) {
-              console.warn('Restarting recognition with fresh instance:', e);
-              restartAttempt++;
-              if (restartAttempt < RESTART_DELAYS.length) {
-                recognition.onend?.();
-              } else {
-                // All retries exhausted — inform the component so the UI
-                // can reflect that recording has stopped.
-                shouldBeRecording = false;
-                callbacks.onEnd?.();
-              }
-            }
-          }
-        }, delay);
-      } else {
-        callbacks.onEnd?.();
-      }
-    };
-  };
-
-  const initRecognition = () => {
-    try {
-      if (recognition) {
-        try {
-          recognition.abort();
-        } catch (e) {}
-      }
-
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1; // 1 alternative provides stable continuous speech without word flapping
-      recognition.lang = currentLanguage;
-
-      bindRecognitionHandlers();
-    } catch (e: any) {
-      console.error('Error creating recognition instance:', e);
-    }
-  };
-
-  initRecognition();
-
-  return {
-    start: () => {
-      shouldBeRecording = true;
-      restartAttempt = 0; // Reset backoff on fresh start
-      noteActivity();
-      startWatchdog();
-      if (isListening || hardRestarting) return;
-      // Always begin from a FRESH instance — after long sessions Chrome's
-      // recognizer can be tainted and a plain .start() throws or silently
-      // does nothing. hardRestart preserves the transcript and never flips
-      // the UI out of its recording state.
-      hardRestart();
-    },
-    stop: () => {
-      shouldBeRecording = false;
-      clearTimeout(restartTimeout);
-      restartTimeout = null;
-      stopWatchdog();
-      clearHardRestartGuard();
-      mergeSessionFinal();
-      if (recognition) {
-        try {
-          recognition.stop();
-        } catch (e) {}
-      }
-      isListening = false;
-      callbacks.onEnd?.();
-    },
-    abort: () => {
-      shouldBeRecording = false;
-      clearTimeout(restartTimeout);
-      restartTimeout = null;
-      stopWatchdog();
-      clearHardRestartGuard();
-      if (recognition) {
-        try {
-          recognition.abort();
-        } catch (e) {}
-      }
-      isListening = false;
-    },
-    reset: () => {
-      baseTranscript = '';
-      currentSessionFinal = '';
-    },
-    setBaseTranscript: (text: string) => {
-      baseTranscript = (text || '').trim();
-      currentSessionFinal = '';
-    },
-    setLanguage: (lang: string) => {
-      currentLanguage = lang;
-      if (recognition) {
-        recognition.lang = lang;
-      }
-    },
-    isSupported: true,
-  };
+  return { text: '' };
 }

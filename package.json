@@ -1,20 +1,33 @@
 {
   "name": "seren-ai-ielts-speaking-coach",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "type": "module",
+  "main": "electron/main.cjs",
+  "desktopName": "Seren",
+  "description": "Seren — your personal AI IELTS speaking coach: Cambridge-style diagnostic tests, instant CEFR scoring, real-time voice practice and personalized lesson plans.",
+  "author": {
+    "name": "Mahmud Mahi",
+    "email": "mahmudurahmanmahi26@gmail.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:watch": "tsx watch server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && cp stt-whisper.cjs dist/",
     "start": "node dist/server.cjs",
+    "app:dev": "electron . --dev",
+    "app:start": "npm run build && electron .",
+    "app:inspect": "node scripts/inspect-desktop-build.cjs",
+    "app:dist": "npm run build && electron-builder --linux deb",
+    "app:dist:win": "npm run build && electron-builder --win nsis",
+    "app:dist:all": "npm run build && electron-builder --linux deb --win nsis",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "setup-stt": "node -e \"require('./stt-whisper.cjs').getRecognizer(); console.log('STT model ready');\""
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.14",
-    "@types/canvas-confetti": "^1.9.0",
-    "@vitejs/plugin-react": "^5.0.4",
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -23,14 +36,18 @@
     "msedge-tts": "^2.0.7",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "sherpa-onnx": "^1.13.6",
-    "vite": "^6.2.3"
+    "sherpa-onnx": "^1.13.6"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.18",
+    "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

@@ -21,6 +21,27 @@
   color-scheme: dark;
 }
 
+/* Base root font size — Tailwind sizes everything in rem, so this is the
+   single knob for the UI's default scale. The "Text & UI Size" setting in
+   Settings multiplies it (see src/utils/textScale.ts, BASE_FONT_PX). */
+html {
+  font-size: 17px;
+  --seren-text-scale: 1;
+}
+
+/* Keep fixed-pixel text utilities in step with the rem-based interface. */
+.text-\[9px\] {
+  font-size: calc(9px * var(--seren-text-scale));
+}
+
+.text-\[10px\] {
+  font-size: calc(10px * var(--seren-text-scale));
+}
+
+.text-\[11px\] {
+  font-size: calc(11px * var(--seren-text-scale));
+}
+
 body {
   background-color: #282a36;
   color: #f8f8f2;

@@ -22,7 +22,8 @@ import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, SerenMood, SavedL
 import { lessonPlanFingerprint } from '../utils/lessonHistory';
 import { SerenAvatar } from './SerenAvatar';
 import { ScrollArea } from './ScrollArea';
-import { createSpeechRecognizer, serenVoice, soundFX, activeAudioRecorder, transcribeAudioWithAI, SUPPORTED_SPEECH_LOCALES } from '../utils/speech';
+import { MicEqualizer } from './MicEqualizer';
+import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../utils/speech';
 import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
 import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 import confetti from 'canvas-confetti';
@@ -77,10 +78,9 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   const [userSpokenText, setUserSpokenText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isEvaluatingDrill, setIsEvaluatingDrill] = useState(false);
-  // AI speech modification (Whisper): while true the recorded audio is being
-  // transcribed/refined by the AI and the transcript box may update.
-  const [isRefiningTranscript, setIsRefiningTranscript] = useState(false);
-  const refiningRef = useRef(false);
+  // Whisper transcription: while true the just-stopped recording is being
+  // transcribed and the transcript box may update.
+  const [isTranscribing, setIsTranscribing] = useState(false);
   // Real-time drill feedback history: every round (the initial drill check PLUS
   // any follow-up reply feedback) is kept, newest appended last, and shown in
   // the scrollable feedback area — original answer + Band 8/8.5 phrasing each.
@@ -133,23 +133,12 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     });
   }, [feedbackHistory.length]);
 
-  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
-  const recognizerRef = useRef<any>(null);
-
+  // Release the recorder when the lesson studio unmounts
   useEffect(() => {
-    recognizerRef.current = createSpeechRecognizer({
-      initialText: userSpokenText,
-      lang: selectedLanguage,
-      onResult: (text) => setUserSpokenText(text),
-      onStart: () => setIsRecording(true),
-      onEnd: () => setIsRecording(false),
-    });
-
     return () => {
-      recognizerRef.current?.stop();
       void activeAudioRecorder.stop().catch(() => {});
     };
-  }, [selectedLanguage]);
+  }, []);
 
   // When selected module changes
   useEffect(() => {
@@ -159,9 +148,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     setLessonSummary(null);
     setConversationHistory([]);
     setIsRecording(false);
-    recognizerRef.current?.stop();
     void activeAudioRecorder.stop().catch(() => {});
-    recognizerRef.current?.reset();
 
     if (selectedModule?.title) {
       const intro = lessonModuleIntro(selectedModule.title, userProfile.nickname);
@@ -189,61 +176,52 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   );
   const totalLessons = plans.reduce((n, p) => n + p.modules.length, 0);
 
-  const handleStartRecording = () => {
+  // Record the drill answer: the box shows the live mic equalizer while
+  // recording; local Whisper transcribes AFTER the user stops. No live text,
+  // no AI modification.
+  const handleStartRecording = async () => {
     soundFX.playChime('start');
-    // 'listening' mood comes automatically via useMicMoodSync when the
-    // recognizer's onStart flips isRecording true — do NOT set it directly.
+    // 'listening' mood comes automatically via useMicMoodSync when
+    // isRecording flips true — do NOT set it directly.
     // Seren's current message (including any follow-up questions) STAYS in her
     // box while you speak; the LISTENING badge + mic icon signal the state.
     serenVoice.stop();
-    // Native high-fidelity recorder feeding the AI transcript refinement.
-    activeAudioRecorder.start();
-    recognizerRef.current?.setBaseTranscript(userSpokenText);
-    recognizerRef.current?.start();
+    setIsRecording(true);
+    const ok = await activeAudioRecorder.start();
+    if (!ok) {
+      setIsRecording(false);
+    }
   };
 
-  const handleStopRecording = () => {
-    recognizerRef.current?.stop();
+  const handleStopRecording = async () => {
     setIsRecording(false);
     // No "I heard you." filler and no mood override: useMicMoodSync releases
     // the listening override and restores the previous base mood, and Seren's
-    // last message stays in her box. The AI refines the transcript instead.
-    void refineTranscriptWithAI(userSpokenText);
-  };
-
-  // AI speech modification — the SAME Whisper refinement pipeline the chat and
-  // the Cambridge test use: recorded audio + the raw browser draft are sent to
-  // /api/stt and the polished transcript replaces the draft in the answer box.
-  const refineTranscriptWithAI = async (draftTranscript: string) => {
-    if (refiningRef.current) return;
-    refiningRef.current = true;
-    setIsRefiningTranscript(true);
+    // last message stays in her box. Whisper's raw transcription lands in the
+    // transcript box.
+    setIsTranscribing(true);
     try {
       const recordResult = await activeAudioRecorder.stop().catch(() => null);
-      const draft = draftTranscript.trim();
-      if ((recordResult?.base64 && recordResult.base64.length > 50) || draft.length > 5) {
-        const refinedText = await transcribeAudioWithAI({
-          audioBase64: recordResult?.base64 || '',
+      if (recordResult?.base64 && recordResult.base64.length > 50) {
+        const transcript = await transcribeAudio({
+          audioBase64: recordResult.base64,
           mimeType: recordResult?.mimeType || 'audio/webm',
-          draftTranscript: draft,
         });
-        const clean = (refinedText || '').trim();
+        const clean = transcript.trim();
         if (clean) {
-          setUserSpokenText(clean);
-          recognizerRef.current?.setBaseTranscript(clean);
+          // Append after any typed draft; pure voice answers fill the box.
+          setUserSpokenText((prev) => (prev.trim() ? `${prev.trim()} ${clean}` : clean));
         }
       }
     } catch (e) {
-      console.warn('Transcript AI refinement notice:', e);
+      console.warn('Transcription notice:', e);
     } finally {
-      refiningRef.current = false;
-      setIsRefiningTranscript(false);
+      setIsTranscribing(false);
     }
   };
 
   const handleUserTextChange = (text: string) => {
     setUserSpokenText(text);
-    recognizerRef.current?.setBaseTranscript(text);
   };
 
   const handleListenModelSample = () => {
@@ -316,9 +294,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
   const handleSubmitDrillAnswer = async () => {
     if (!userSpokenText.trim()) return;
-    recognizerRef.current?.stop();
     setIsRecording(false);
-    // Release the native mic capture too (the AI refinement may not have run
+    // Release the native mic capture too (Whisper transcription may not have run
     // if the user submitted straight from the listening state).
     void activeAudioRecorder.stop().catch(() => {});
     setIsEvaluatingDrill(true);
@@ -391,7 +368,6 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
   const handleReplyToSeren = async () => {
     if (!userSpokenText.trim()) return;
-    recognizerRef.current?.stop();
     setIsRecording(false);
     setIsSubmittingReply(true);
     saySeren('');
@@ -693,34 +669,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     <span className="text-[11px] text-[#6272a4]">
                       {userSpokenText.split(/\s+/).filter(Boolean).length} words
                     </span>
-                    {isRefiningTranscript && (
+                    {isTranscribing && (
                       <span className="text-[11px] text-[#bd93f9] flex items-center gap-1 animate-pulse">
                         <Sparkles className="w-3 h-3" />
-                        AI is refining your transcript…
+                        Transcribing your speech…
                       </span>
                     )}
                   </div>
 
                 <div className="flex items-center gap-1 text-[11px]">
-                  <span className="text-[#6272a4] text-[10px] uppercase font-mono mr-1">Mic Accent:</span>
-                  {SUPPORTED_SPEECH_LOCALES.slice(0, 5).map((acc) => (
-                    <button
-                      key={acc.code}
-                      type="button"
-                      onClick={() => {
-                        setSelectedLanguage(acc.code);
-                        recognizerRef.current?.setLanguage(acc.code);
-                      }}
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors ${
-                        selectedLanguage === acc.code
-                          ? 'bg-[#bd93f9]/25 border-[#bd93f9] text-[#bd93f9]'
-                          : 'bg-[#21222c] border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2]'
-                      }`}
-                      title={acc.name}
-                    >
-                      {acc.flag} {acc.code.replace('en-', '')}
-                    </button>
-                  ))}
                   {userSpokenText && (
                     <button
                       type="button"
@@ -734,14 +691,23 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 </div>
               </div>
 
-              <textarea
-                id="lesson-drill-transcript-input"
-                rows={3}
-                value={userSpokenText}
-                onChange={(e) => handleUserTextChange(e.target.value)}
-                placeholder="Click 'Record Answer' and speak (pauses are safely handled), or type your practice response here..."
-                className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50"
-              />
+              {/* Practice-response box: shows the live mic equalizer while
+                  recording (Whisper only transcribes AFTER stop) */}
+              <div className="relative">
+                <textarea
+                  id="lesson-drill-transcript-input"
+                  rows={3}
+                  value={userSpokenText}
+                  onChange={(e) => handleUserTextChange(e.target.value)}
+                  placeholder="Click 'Record Answer' and speak, or type your practice response here..."
+                  className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50"
+                />
+                {isRecording && (
+                  <div className="absolute inset-0 rounded-2xl bg-[#21222c]/95 border border-[#44475a] flex items-center justify-center px-4">
+                    <MicEqualizer active />
+                  </div>
+                )}
+              </div>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -788,7 +754,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   id="drill-evaluate-btn"
                   type="button"
                   onClick={handleSubmitDrillAnswer}
-                  disabled={!userSpokenText.trim() || isEvaluatingDrill || isRefiningTranscript}
+                  disabled={!userSpokenText.trim() || isEvaluatingDrill || isTranscribing}
                   className="px-6 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-40 disabled:pointer-events-none text-[#282a36] font-bold text-xs sm:text-sm shadow-lg shadow-[#bd93f9]/25 transition-all flex items-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />

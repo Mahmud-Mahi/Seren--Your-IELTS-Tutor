@@ -1,0 +1,128 @@
+# electron-builder configuration for Seren — Your IELTS Tutor
+#
+# Targets:
+#   - Linux  : .deb  (native, testable here)
+#   - Windows: .exe  (NSIS installer, cross-built with wine)
+#   - macOS  : dmg/zip — configured but dormant; it can only be built on a Mac
+#              (`npm run app:dist:mac`), see electron-resources/README.md
+#
+# Why asar is disabled: the Express server runs as a *separate* Node process
+# (dist/server.cjs via ELECTRON_RUN_AS_NODE — see electron/main.cjs) and must
+# resolve its modules with plain Node semantics. Unpacked files make that
+# guaranteed instead of depending on asar-patched module resolution inside a
+# child process.
+appId: com.seren.ielts-tutor
+productName: Seren
+copyright: Copyright © 2026 Mahmud Mahi
+
+directories:
+  # electron-builder's default output directory is literally `dist/`, which
+  # would collide with (and potentially clobber) the Vite web build.
+  output: release
+  # Icons and entitlements live here. The default is `build/`, but this repo's
+  # .gitignore excludes `build/` — renamed so these files stay in version control.
+  buildResources: electron-resources
+
+# What ships inside the app. Production dependencies are added automatically;
+# devDependencies never are.
+files:
+  - package.json
+  - electron/**/*
+  - dist/**/*
+  # README screenshots (several MB) that the app itself never uses.
+  - '!dist/Preview/**'
+  - '!dist/**/*.map'
+  # Never ship local secrets or local state.
+  - '!.env'
+  - '!.env.*'
+  - '!seren-settings.json'
+  - '!models/**'
+  - '!release/**'
+  - '!scripts/**'
+  - '!src/**'
+  - '!assets/**'
+
+# Nothing native to compile: sherpa-onnx (STT) is WebAssembly and msedge-tts is
+# pure JS — so no rebuild step, which keeps packaging fast and predictable.
+npmRebuild: false
+asar: false
+
+linux:
+  target:
+    - deb
+  category: Education
+  executableName: seren
+  # Makes the generated .desktop filename and StartupWMClass match the app_id /
+  # WM_CLASS Electron derives from package.json "desktopName" — without it the
+  # desktop environment cannot link the running window to the launcher icon.
+  syncDesktopName: true
+  synopsis: AI IELTS speaking coach with offline speech recognition
+  description: |
+    Seren is your personal AI IELTS speaking coach: Cambridge-style diagnostic
+    tests across all three parts, instant CEFR/band scoring with a four-pillar
+    breakdown, 1v1 voice practice, and AI-generated lesson plans that target
+    your weakest areas.
+  maintainer: Mahmud Mahi <mahmudurahmanmahi26@gmail.com>
+  # NOTE: electron-builder v26 types `linux.desktop.entry` as a *function*, so
+  # desktop-file keys cannot be customised from this YAML file. Its generated
+  # defaults already cover what we need: Name, Comment, Exec, Icon, Categories
+  # (from `category` above) and StartupWMClass (from productName/executableName).
+  # To add Keywords etc., switch this file to a JS config and pass `entry`.
+
+deb:
+  # Debian convention: name_version_arch.deb  →  release/seren_0.0.0_amd64.deb
+  artifactName: seren_${version}_${arch}.deb
+  # Package name in dpkg/apt (defaults to package.json "name", which is long):
+  # this makes `sudo apt remove seren` the uninstall command.
+  packageName: seren
+  priority: optional
+  compression: xz
+  # No tray icon is implemented, so electron-builder's default
+  # "Recommends: libappindicator3-1" would be misleading (and that package no
+  # longer exists on t64-based distros).
+  recommends: []
+  # The generated `Depends:` uses names such as libgtk-3-0 / libasound2 /
+  # libatspi2.0-0. Time64 (t64) distros satisfy these through `Provides:` —
+  # always verify with `apt-get -s install ./release/*.deb` before overriding.
+  # Alternatives syntax works if a name ever needs pinning:
+  # depends:
+  #   - libgtk-3-0 | libgtk-3-0t64
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: electron-resources/icon.ico
+  executableName: Seren
+  # Unsigned build: personal use is fine, Windows shows a SmartScreen warning on
+  # first run. Signing details live under `win.signtoolOptions` in v26.
+
+nsis:
+  artifactName: Seren-Setup-${version}.${ext}
+  oneClick: false
+  # Per-user install → %LOCALAPPDATA%\Programs\Seren, no admin prompt.
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Seren
+  uninstallDisplayName: Seren — Your IELTS Tutor
+  # Keep app data (API keys, downloaded Whisper model) across reinstalls.
+  deleteAppDataOnUninstall: false
+
+# Dormant unless `npm run app:dist:mac` is run on macOS.
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.education
+  icon: electron-resources/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron-resources/entitlements.mac.plist
+  entitlementsInherit: electron-resources/entitlements.mac.plist
+  artifactName: Seren-${version}-${arch}.${ext}
+  extendInfo:
+    # Without this, macOS denies microphone access to a packaged app outright.
+    NSMicrophoneUsageDescription: Seren listens to your spoken answers to score your IELTS speaking practice. Audio is handled by the speech engine you choose in Settings.

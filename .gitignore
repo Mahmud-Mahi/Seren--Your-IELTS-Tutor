@@ -7,9 +7,11 @@ coverage/
 .env*
 !.env.example
 
+# Electron packaging output (electron-builder)
+release/
+
 # Local AI preferences (contains API key)
 seren-settings.json
-lumi-settings.json
 
 # Whisper STT models (~113MB, downloaded on first run)
 models/

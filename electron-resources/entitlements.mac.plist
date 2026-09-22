@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the macOS build (electron-builder.yml → mac).
+
+  audio-input is required: without it macOS silently denies the microphone in a
+  packaged, hardened app, and the whole voice-practice flow stops working.
+  The three cs.* entries are Electron's standard requirements (V8 JIT and the
+  dynamic memory it maps).
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+  </dict>
+</plist>
