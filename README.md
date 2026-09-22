@@ -190,8 +190,8 @@ For an unpacked Linux build, run `./release/linux-unpacked/seren --version` or
 ### Build installers
 
 ```bash
-npm run app:dist      # Linux   → release/seren_1.1.0_amd64.deb
-npm run app:dist:win  # Windows → release/Seren-Setup-1.1.0.exe  (cross-built with wine)
+npm run app:dist      # Linux   → release/seren_1.1.1_amd64.deb
+npm run app:dist:win  # Windows → release/Seren-Setup-1.1.1.exe  (cross-built with wine)
 npm run app:dist:all  # both in one go
 npm run app:inspect   # list what actually got packaged (files, deps, secrets, size)
 npm run app:dist:mac  # macOS .dmg — must be run ON macOS
@@ -253,7 +253,7 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 
 ### Desktop behaviour worth knowing
 
-- **Stable origin** — the window always loads the fixed `seren://app` origin, which the shell transparently proxies to whichever loopback port the backend picked. localStorage is origin-scoped, so chat history, reports and lessons can never be stranded by a port change. Also new: **Settings → Text & UI Size** (persisted whole-UI zoom; `Ctrl +` / `Ctrl −` work too) and **Settings → Your Data** (export/import a JSON backup of everything).
+- **Stable origin** — the window always loads the fixed `seren://app` origin, which the shell transparently proxies to whichever loopback port the backend picked. localStorage is origin-scoped, so chat history, reports and lessons can never be stranded by a port change. **Settings → Display Size** provides independent whole-UI zoom (including images) and text-only scaling, while **Settings → Your Data** provides JSON backup and restore.
 - **Ports** — the app prefers `3000` and automatically falls back to a free port if it is busy, so the `EADDRINUSE` failure can no longer block startup. If a Seren server is already running on 3000, the window attaches to it instead of starting a second one.
 - **Network** — the desktop shell binds the backend to `127.0.0.1` only, so your API keys are never reachable from the LAN (the browser workflow keeps the previous `0.0.0.0` behaviour).
 - **Closing the window quits the app** (all platforms), including the backend process — no invisible server left behind.

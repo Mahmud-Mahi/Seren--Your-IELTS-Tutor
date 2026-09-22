@@ -27,13 +27,19 @@ import {
 import { serenVoice, TTSEngineMode } from '../utils/speech';
 import { getAutoMicEnabled, setAutoMicEnabled } from '../utils/preferences';
 import {
-  BASE_FONT_PX,
+  DEFAULT_UI_ZOOM,
   DEFAULT_TEXT_SCALE,
+  getUiZoom,
   getTextScale,
+  MAX_UI_ZOOM,
   MAX_TEXT_SCALE,
+  MIN_UI_ZOOM,
   MIN_TEXT_SCALE,
+  setUiZoom,
   setTextScale,
+  stepUiZoom,
   stepTextScale,
+  UI_ZOOM_STEP,
   TEXT_SCALE_STEP,
 } from '../utils/textScale';
 import { ShortcutSettings } from './ShortcutSettings';
@@ -143,9 +149,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     setAutoMic(enabled);
   };
 
-  // ---- Text & UI size (whole-UI zoom, persisted per device) ----------------
+  // ---- Display size controls (persisted per device) ------------------------
+  const [uiZoom, setUiZoomState] = useState<number>(() => getUiZoom());
   const [textScale, setTextScaleState] = useState<number>(() => getTextScale());
+  const nudgeUiZoom = (delta: number) => setUiZoomState(stepUiZoom(delta));
   const nudgeTextScale = (delta: number) => setTextScaleState(stepTextScale(delta));
+  const resetUiZoom = () => setUiZoomState(setUiZoom(DEFAULT_UI_ZOOM));
   const resetTextScale = () => setTextScaleState(setTextScale(DEFAULT_TEXT_SCALE));
 
   // ---- Your data (export / import a JSON backup of everything) -------------
@@ -937,36 +946,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 </div>
               </section>
 
-              {/* Text & UI Size */}
+              {/* Display size */}
               <section>
-                <h3 className="text-xs font-bold uppercase tracking-widest text-[#f1fa8c] mb-3">Text &amp; UI Size</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#f1fa8c] mb-3">Display Size</h3>
                 <div className="p-4 rounded-2xl border border-[#44475a] bg-[#21222c]/80 space-y-3">
                   <p className="text-[11px] text-[#6272a4] leading-relaxed">
-                    Zoom the whole interface — text, buttons and spacing scale together. The choice is saved on this
-                    device. In the desktop app, <span className="text-[#6272a4] font-semibold">Ctrl + / Ctrl −</span>{' '}
-                    work too.
+                    Choose whether to enlarge the complete interface or only its typography. Both settings are saved
+                    on this device.
+                  </p>
+                  <div className="text-xs font-semibold text-[#f8f8f2]">Whole UI zoom</div>
+                  <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                    Scales text, spacing, controls and images together.
+                  </p>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => nudgeUiZoom(-UI_ZOOM_STEP)}
+                      disabled={uiZoom <= MIN_UI_ZOOM}
+                      title="Decrease whole UI zoom"
+                      className="p-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#8be9fd] hover:bg-[#44475a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
+                    <div className="flex-1 text-center">
+                      <div className="text-base font-bold text-[#f8f8f2]">{Math.round(uiZoom * 100)}%</div>
+                      <div className="text-[10px] text-[#6272a4]">UI and images</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => nudgeUiZoom(UI_ZOOM_STEP)}
+                      disabled={uiZoom >= MAX_UI_ZOOM}
+                      title="Increase whole UI zoom"
+                      className="p-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#8be9fd] hover:bg-[#44475a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetUiZoom}
+                      disabled={uiZoom === DEFAULT_UI_ZOOM}
+                      title="Reset whole UI zoom"
+                      className="px-3 py-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a] transition-colors text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset
+                    </button>
+                  </div>
+                  <div className="pt-1 text-xs font-semibold text-[#f8f8f2]">Text scale</div>
+                  <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                    Scales every text size by the same ratio while keeping spacing and images unchanged.
                   </p>
                   <div className="flex items-center gap-2.5">
                     <button
                       type="button"
                       onClick={() => nudgeTextScale(-TEXT_SCALE_STEP)}
                       disabled={textScale <= MIN_TEXT_SCALE}
-                      title="Zoom out"
+                      title="Decrease text scale"
                       className="p-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#8be9fd] hover:bg-[#44475a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <ZoomOut className="w-4 h-4" />
                     </button>
                     <div className="flex-1 text-center">
                       <div className="text-base font-bold text-[#f8f8f2]">{Math.round(textScale * 100)}%</div>
-                      <div className="text-[10px] text-[#6272a4]">
-                        {(BASE_FONT_PX * textScale).toFixed(1)}px base text
-                      </div>
+                      <div className="text-[10px] text-[#6272a4]">Text only</div>
                     </div>
                     <button
                       type="button"
                       onClick={() => nudgeTextScale(TEXT_SCALE_STEP)}
                       disabled={textScale >= MAX_TEXT_SCALE}
-                      title="Zoom in"
+                      title="Increase text scale"
                       className="p-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#8be9fd] hover:bg-[#44475a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <ZoomIn className="w-4 h-4" />
@@ -975,7 +1023,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                       type="button"
                       onClick={resetTextScale}
                       disabled={textScale === DEFAULT_TEXT_SCALE}
-                      title="Reset to default"
+                      title="Reset text scale"
                       className="px-3 py-2.5 rounded-xl border border-[#44475a] bg-[#282a36] text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a] transition-colors text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />

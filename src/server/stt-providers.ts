@@ -188,7 +188,7 @@ function shouldFallbackToLocal(err: any): boolean {
 
 export async function describeSttEngines() {
   const engines = [
-    { key: 'local', label: 'Local STT (Sherpa-ONNX)', description: 'Offline, private and always free. Default fallback.', needsKey: false, hasKey: true, reachable: true, model: sttModelFor('local'), models: ['whisper-tiny.en-local'] },
+    { key: 'local', label: 'Local STT (Sherpa-ONNX)', description: 'Offline, private and always free. Default fallback.', needsKey: false, hasKey: true, reachable: true, model: sttModelFor('local'), models: ['whisper-base.en-local'] },
     { key: 'groq', label: 'Groq Cloud STT', description: 'Fast cloud Whisper. Reuses the Groq API key used for chat responses.', needsKey: true, hasKey: Boolean(groqSttApiKey()), reachable: false, model: sttModelFor('groq'), models: [...GROQ_STT_MODELS] },
     { key: 'assemblyai', label: 'AssemblyAI STT', description: 'Accurate cloud speech models with upload plus async transcript flow.', needsKey: true, hasKey: Boolean(assemblyAiApiKey()), reachable: false, model: sttModelFor('assemblyai'), models: [...ASSEMBLYAI_SPEECH_MODELS] },
     { key: 'deepgram', label: 'Deepgram STT', description: 'Ultra-fast cloud speech-to-text with Nova and Flux models.', needsKey: true, hasKey: Boolean(deepgramApiKey()), reachable: false, model: sttModelFor('deepgram'), models: [...DEEPGRAM_STT_MODELS] },

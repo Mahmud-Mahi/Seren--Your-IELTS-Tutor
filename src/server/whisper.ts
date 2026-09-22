@@ -25,6 +25,7 @@ try {
   } catch {}
   const searchDirs = [
     srcDir,
+    typeof __dirname !== 'undefined' ? path.resolve(__dirname || '.') : '',
     typeof __dirname !== 'undefined' ? path.resolve(__dirname || '.', '..') : '',
     process.cwd(),
   ];

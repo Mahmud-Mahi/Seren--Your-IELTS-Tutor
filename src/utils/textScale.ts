@@ -1,13 +1,9 @@
 /**
- * Text & UI scaling — a persisted zoom for the whole interface.
- *
- * Tailwind sizes everything in rem, so scaling the root font-size scales the
- * entire UI (text, spacing, controls) proportionally — in the browser AND the
- * desktop app. The choice is stored under `seren_text_scale` (a plain number,
- * 1 = 100%) so it survives reloads and is applied before React first paints.
+ * Persisted UI zoom and text-only scaling for the whole interface.
  */
 
-const STORAGE_KEY = 'seren_text_scale';
+const UI_ZOOM_STORAGE_KEY = 'seren_ui_zoom';
+const TEXT_SCALE_STORAGE_KEY = 'seren_text_scale';
 
 /**
  * Base root font size the scale multiplies. Kept in sync with the `html`
@@ -15,50 +11,84 @@ const STORAGE_KEY = 'seren_text_scale';
  */
 export const BASE_FONT_PX = 17;
 
+export const MIN_UI_ZOOM = 0.75;
+export const MAX_UI_ZOOM = 1.5;
+export const UI_ZOOM_STEP = 0.05;
+export const DEFAULT_UI_ZOOM = 1;
+
 export const MIN_TEXT_SCALE = 0.85;
 export const MAX_TEXT_SCALE = 1.6;
 export const TEXT_SCALE_STEP = 0.05;
 export const DEFAULT_TEXT_SCALE = 1;
 
+function clamp(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(value * 100) / 100));
+}
+
+export function clampUiZoom(value: number): number {
+  return clamp(value, MIN_UI_ZOOM, MAX_UI_ZOOM, DEFAULT_UI_ZOOM);
+}
+
 export function clampTextScale(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_TEXT_SCALE;
-  return Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, Math.round(value * 100) / 100));
+  return clamp(value, MIN_TEXT_SCALE, MAX_TEXT_SCALE, DEFAULT_TEXT_SCALE);
 }
 
-/** Current scale (1 = 100%). Falls back to the default when unset/invalid. */
-export function getTextScale(): number {
+function readScale(key: string, fallback: number, min: number, max: number): number {
   try {
-    const parsed = Number(localStorage.getItem(STORAGE_KEY));
-    if (Number.isFinite(parsed) && parsed >= MIN_TEXT_SCALE && parsed <= MAX_TEXT_SCALE) return parsed;
+    const parsed = Number(localStorage.getItem(key));
+    if (Number.isFinite(parsed) && parsed >= min && parsed <= max) return parsed;
   } catch {
-    // storage unavailable — fall through to the default
   }
-  return DEFAULT_TEXT_SCALE;
+  return fallback;
 }
 
-/** Applies the scale to the document root; every rem-based size follows. */
+export function getUiZoom(): number {
+  return readScale(UI_ZOOM_STORAGE_KEY, DEFAULT_UI_ZOOM, MIN_UI_ZOOM, MAX_UI_ZOOM);
+}
+
+export function getTextScale(): number {
+  return readScale(TEXT_SCALE_STORAGE_KEY, DEFAULT_TEXT_SCALE, MIN_TEXT_SCALE, MAX_TEXT_SCALE);
+}
+
+export function applyUiZoom(zoom: number = getUiZoom()): void {
+  try {
+    document.documentElement.style.setProperty('--seren-ui-zoom', String(zoom));
+  } catch {
+  }
+}
+
 export function applyTextScale(scale: number = getTextScale()): void {
   try {
     document.documentElement.style.setProperty('--seren-text-scale', String(scale));
-    document.documentElement.style.fontSize = `${(BASE_FONT_PX * scale).toFixed(2)}px`;
   } catch {
-    // no document — nothing to do
   }
 }
 
-/** Persists AND applies the scale. Returns the clamped value actually used. */
+export function setUiZoom(zoom: number): number {
+  const clamped = clampUiZoom(zoom);
+  try {
+    localStorage.setItem(UI_ZOOM_STORAGE_KEY, String(clamped));
+  } catch {
+  }
+  applyUiZoom(clamped);
+  return clamped;
+}
+
 export function setTextScale(scale: number): number {
   const clamped = clampTextScale(scale);
   try {
-    localStorage.setItem(STORAGE_KEY, String(clamped));
+    localStorage.setItem(TEXT_SCALE_STORAGE_KEY, String(clamped));
   } catch {
-    // storage may be full/blocked — still apply for this session
   }
   applyTextScale(clamped);
   return clamped;
 }
 
-/** Nudge helper for − / + controls (e.g. stepTextScale(-TEXT_SCALE_STEP)). */
+export function stepUiZoom(delta: number): number {
+  return setUiZoom(getUiZoom() + delta);
+}
+
 export function stepTextScale(delta: number): number {
   return setTextScale(getTextScale() + delta);
 }

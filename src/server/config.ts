@@ -145,7 +145,7 @@ export function sttModelFor(engine: SttEngine): string {
   if (engine === 'deepgram') {
     return process.env.DEEPGRAM_STT_MODEL?.trim() || DEEPGRAM_STT_MODELS[0];
   }
-  return 'whisper-tiny.en-local';
+  return 'whisper-base.en-local';
 }
 
 export function groqSttApiKey(): string {

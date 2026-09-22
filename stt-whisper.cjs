@@ -1,7 +1,7 @@
 /**
  * sherpa-onnx Whisper STT helper (CommonJS)
- * Converts base64 audio (webm/opus from MediaRecorder) to text via Whisper tiny.en.
- * Auto-downloads the model on first run (~113MB).
+ * Converts base64 audio (webm/opus from MediaRecorder) to text via Whisper base.en.
+ * Auto-downloads the model on first run (~150MB).
  */
 const fs = require('fs');
 const path = require('path');
@@ -27,15 +27,15 @@ function projectRoot() {
 // Where the Whisper model is stored. Defaults to <projectRoot>/models, keeping
 // dev / `npm start` unchanged. The desktop shell points SEREN_MODELS_DIR at a
 // writable app-data folder because the installed app bundle is read-only and
-// the ~113MB first-run download would otherwise fail.
+// the ~150MB first-run download would otherwise fail.
 const MODELS_ROOT = process.env.SEREN_MODELS_DIR
   ? path.resolve(process.env.SEREN_MODELS_DIR)
   : path.join(projectRoot(), 'models');
-const MODEL_DIR = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-tiny.en');
-const MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2';
-const MODEL_ARCHIVE = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-tiny.en.tar.bz2');
+const MODEL_DIR = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-base.en');
+const MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2';
+const MODEL_ARCHIVE = path.join(MODELS_ROOT, 'sherpa-onnx-whisper-base.en.tar.bz2');
 
-const MODEL_FILES = ['tiny.en-encoder.int8.onnx', 'tiny.en-decoder.int8.onnx', 'tiny.en-tokens.txt'];
+const MODEL_FILES = ['base.en-encoder.int8.onnx', 'base.en-decoder.int8.onnx', 'base.en-tokens.txt'];
 
 // Whisper decodes at most 30s of audio per pass — anything longer is silently
 // discarded ("Only waves less than 30 seconds are supported"). Long answers
@@ -79,7 +79,7 @@ function findQuietBoundary(samples, sampleRate, targetEnd) {
 }
 
 // --- Audio conditioning -----------------------------------------------------
-// Whisper tiny.en is very sensitive to input level and to leading silence.
+// Whisper base.en is sensitive to input level and to leading silence.
 // Quiet first recordings (browser/OS AGC still ramping up on a freshly opened
 // mic stream) and seconds of room noise at the head of a clip are the classic
 // triggers for hallucinated output ("Thank you.", "Okay, so..."). Trimming
@@ -189,7 +189,7 @@ function decodeChunk(recognizer, sampleRate, samples) {
 function getStatus() {
   return {
     engine: 'sherpa-onnx-whisper',
-    model: 'tiny.en',
+    model: 'base.en',
     modelDir: MODEL_DIR,
     sherpaOnnxLoaded: Boolean(sherpa_onnx && typeof sherpa_onnx.createOfflineRecognizer === 'function'),
     loadError,
@@ -213,11 +213,11 @@ function getStatus() {
  * model is missing — use `npm run setup-stt` or transcribe once to fetch it.
  */
 function runSelfTest() {
-  const encoder = path.join(MODEL_DIR, 'tiny.en-encoder.int8.onnx');
+  const encoder = path.join(MODEL_DIR, 'base.en-encoder.int8.onnx');
   if (!MODEL_FILES.every((f) => fs.existsSync(path.join(MODEL_DIR, f)))) {
     return {
       ok: false,
-      error: 'Whisper model files are missing — run "npm run setup-stt" (downloads tiny.en, ~113MB)',
+      error: 'Whisper model files are missing — run "npm run setup-stt" (downloads base.en, ~150MB)',
     };
   }
 
@@ -285,9 +285,9 @@ function warmUp() {
 }
 
 function ensureModel() {
-  if (fs.existsSync(path.join(MODEL_DIR, 'tiny.en-encoder.int8.onnx'))) return;
+  if (fs.existsSync(path.join(MODEL_DIR, 'base.en-encoder.int8.onnx'))) return;
 
-  console.log('[stt-whisper] Model not found — downloading Whisper tiny.en (~113MB)...');
+  console.log('[stt-whisper] Model not found — downloading Whisper base.en (~150MB)...');
   fs.mkdirSync(MODELS_ROOT, { recursive: true });
 
   execSync(`curl -SL -o "${MODEL_ARCHIVE}" "${MODEL_URL}"`, {
@@ -297,7 +297,7 @@ function ensureModel() {
   execSync(`tar xjf "${MODEL_ARCHIVE}" -C "${MODELS_ROOT}"`, { timeout: 60000 });
   try { fs.unlinkSync(MODEL_ARCHIVE); } catch {}
 
-  if (!fs.existsSync(path.join(MODEL_DIR, 'tiny.en-encoder.int8.onnx'))) {
+  if (!fs.existsSync(path.join(MODEL_DIR, 'base.en-encoder.int8.onnx'))) {
     throw new Error('Whisper model download failed');
   }
   console.log('[stt-whisper] Model downloaded successfully');
@@ -314,13 +314,13 @@ function getRecognizer() {
   const config = {
     modelConfig: {
       whisper: {
-        encoder: path.join(MODEL_DIR, 'tiny.en-encoder.int8.onnx'),
-        decoder: path.join(MODEL_DIR, 'tiny.en-decoder.int8.onnx'),
+        encoder: path.join(MODEL_DIR, 'base.en-encoder.int8.onnx'),
+        decoder: path.join(MODEL_DIR, 'base.en-decoder.int8.onnx'),
         language: '',
         task: 'transcribe',
         tailPaddings: -1,
       },
-      tokens: path.join(MODEL_DIR, 'tiny.en-tokens.txt'),
+      tokens: path.join(MODEL_DIR, 'base.en-tokens.txt'),
     },
   };
 
