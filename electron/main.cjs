@@ -21,7 +21,7 @@
  */
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, protocol, session, shell, screen } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const net = require('net');
@@ -102,6 +102,7 @@ const PRELOAD = path.join(__dirname, 'preload.cjs');
 const APP_ICON = path.join(DIST_DIR, 'icons', 'icon-512.png');
 
 const DATA_DIR = app.getPath('userData');
+const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 const MODELS_DIR = path.join(DATA_DIR, 'models');
 const LOG_FILE = path.join(DATA_DIR, 'seren-server.log');
 const PREFERRED_PORT = Number(process.env.PORT || 3000);
@@ -128,6 +129,73 @@ let mainWindow = null;
 let splashWindow = null;
 let booting = false;
 let quitting = false;
+let windowStateSaveTimer = null;
+
+const DEFAULT_WINDOW_BOUNDS = { width: 1280, height: 860 };
+
+function readWindowState() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(WINDOW_STATE_FILE, 'utf8'));
+    if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return null;
+    if (!Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return null;
+    return {
+      x: Math.round(saved.x),
+      y: Math.round(saved.y),
+      width: Math.round(saved.width),
+      height: Math.round(saved.height),
+      maximized: saved.maximized === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getRestoredWindowState() {
+  const saved = readWindowState();
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  if (!saved) {
+    return {
+      ...DEFAULT_WINDOW_BOUNDS,
+      x: primaryWorkArea.x + Math.round((primaryWorkArea.width - DEFAULT_WINDOW_BOUNDS.width) / 2),
+      y: primaryWorkArea.y + Math.round((primaryWorkArea.height - DEFAULT_WINDOW_BOUNDS.height) / 2),
+      maximized: false,
+    };
+  }
+
+  const display = screen.getDisplayMatching(saved);
+  const workArea = display.workArea;
+  const width = Math.min(Math.max(saved.width, 960), workArea.width);
+  const height = Math.min(Math.max(saved.height, 640), workArea.height);
+  return {
+    width,
+    height,
+    x: Math.min(Math.max(saved.x, workArea.x), workArea.x + workArea.width - width),
+    y: Math.min(Math.max(saved.y, workArea.y), workArea.y + workArea.height - height),
+    maximized: saved.maximized,
+  };
+}
+
+function writeWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
+  const bounds = mainWindow.getBounds();
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(
+      WINDOW_STATE_FILE,
+      JSON.stringify({ ...bounds, maximized: mainWindow.isMaximized() }, null, 2)
+    );
+  } catch (error) {
+    log(`could not save window state: ${error?.message || error}`);
+  }
+}
+
+function scheduleWindowStateSave() {
+  if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+  windowStateSaveTimer = setTimeout(() => {
+    windowStateSaveTimer = null;
+    writeWindowState();
+  }, 150);
+}
 
 // ---------------------------------------------------------------------------
 // Logging — mirrored to the terminal and to <userData>/seren-server.log
@@ -174,6 +242,28 @@ function seedSettingsFromProject() {
     log('imported existing seren-settings.json into the app data folder');
   } catch (e) {
     log(`settings import skipped: ${e?.message || e}`);
+  }
+}
+
+/** Seed the bundled Whisper files into the writable app-data directory. */
+function seedWhisperModel() {
+  const source = path.join(process.resourcesPath, 'models', 'sherpa-onnx-whisper-base.en');
+  const target = path.join(MODELS_DIR, 'sherpa-onnx-whisper-base.en');
+  const requiredFiles = [
+    'base.en-encoder.onnx',
+    'base.en-decoder.onnx',
+    'base.en-tokens.txt',
+  ];
+
+  if (!requiredFiles.every((file) => fs.existsSync(path.join(source, file)))) return;
+  if (requiredFiles.every((file) => fs.existsSync(path.join(target, file)))) return;
+
+  try {
+    fs.mkdirSync(MODELS_DIR, { recursive: true });
+    fs.cpSync(source, target, { recursive: true });
+    log('copied bundled Whisper model into the app data folder');
+  } catch (error) {
+    log(`could not copy bundled Whisper model: ${error?.message || error}`);
   }
 }
 
@@ -485,9 +575,12 @@ function closeSplash() {
 function ensureMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
 
+  const windowState = getRestoredWindowState();
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    x: windowState.x,
+    y: windowState.y,
+    width: windowState.width,
+    height: windowState.height,
     minWidth: 960,
     minHeight: 640,
     show: false,
@@ -503,11 +596,24 @@ function ensureMainWindow() {
     },
   });
 
+  if (windowState.maximized) mainWindow.maximize();
+
   registerShellAccelerators(mainWindow);
+
+  mainWindow.on('move', scheduleWindowStateSave);
+  mainWindow.on('resize', scheduleWindowStateSave);
+  mainWindow.on('maximize', scheduleWindowStateSave);
+  mainWindow.on('unmaximize', scheduleWindowStateSave);
 
   mainWindow.once('ready-to-show', () => {
     closeSplash();
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+  });
+
+  mainWindow.on('close', () => {
+    if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+    windowStateSaveTimer = null;
+    writeWindowState();
   });
 
   mainWindow.on('closed', () => {
@@ -765,6 +871,7 @@ if (!app.requestSingleInstanceLock()) {
     log(`starting Seren ${app.getVersion()} (Electron ${process.versions.electron}, ${process.platform})`);
     loadProjectEnv();
     seedSettingsFromProject();
+    seedWhisperModel();
     buildMenu();
     configureSessionPermissions();
     registerAppProtocol();

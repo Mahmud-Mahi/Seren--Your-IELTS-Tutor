@@ -525,7 +525,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
             exit={{ scale: 0.94, y: 20, opacity: 0 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-3xl border border-[#44475a] bg-[#282a36] shadow-2xl shadow-black/50"
+            className="w-full max-w-2xl max-h-[82vh] overflow-y-auto rounded-3xl border border-[#44475a] bg-[#282a36] shadow-2xl shadow-black/50"
           >
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-[#282a36]/95 backdrop-blur border-b border-[#44475a]">
@@ -915,11 +915,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                   {/* Voice picker */}
                   <div>
                     <label className="text-[11px] font-semibold text-[#6272a4] mb-1.5 block">Neural voice</label>
-                    <div className="flex gap-2">
+                    <div className="flex min-w-0 gap-2">
                       <select
                         value={selectedVoice}
                         onChange={(e) => applyVoice(e.target.value)}
-                        className="flex-1 px-3 py-2 rounded-xl border border-[#44475a] bg-[#282a36] text-xs text-[#f8f8f2] outline-none focus:border-[#bd93f9]/60"
+                        className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-[#44475a] bg-[#282a36] text-xs text-[#f8f8f2] outline-none focus:border-[#bd93f9]/60"
                       >
                         {voices.map((v) => (
                           <option key={v.id} value={v.id}>
@@ -932,7 +932,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                         type="button"
                         onClick={() => void handlePreviewVoice(selectedVoice)}
                         disabled={previewingVoice === selectedVoice}
-                        className="px-3 py-2 rounded-xl border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-xs font-bold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                        className="shrink-0 whitespace-nowrap px-3 py-2 rounded-xl border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-xs font-bold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                       >
                         {previewingVoice === selectedVoice ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />

@@ -80,7 +80,7 @@ export const MicEqualizer: React.FC<MicEqualizerProps> = ({
   }, [active, barCount]);
 
   return (
-    <div className={`flex items-center justify-center gap-[3px] w-full px-1 ${className}`} aria-hidden>
+    <div className={`flex h-8 max-h-8 items-center justify-center gap-[3px] w-full overflow-hidden px-1 ${className}`} aria-hidden>
       {levels.map((h, i) => (
         <div
           key={i}

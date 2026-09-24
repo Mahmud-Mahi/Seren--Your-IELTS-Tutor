@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, SpeakingEvaluation, SavedReport, SavedLessonPlan } from './types';
 import { Header } from './components/Header';
 import { OnboardingModal } from './components/OnboardingModal';
+import { UserPref } from './components/UserPref';
 import { CambridgeTest } from './components/CambridgeTest';
 import { EvaluationReport } from './components/EvaluationReport';
 import { LessonStudio } from './components/LessonStudio';
@@ -73,6 +74,7 @@ export default function App() {
     return 'chat';
   });
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!userProfile);
+  const [showProfileEditor, setShowProfileEditor] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
@@ -268,6 +270,7 @@ export default function App() {
         voiceEnabled={voiceEnabled}
         onToggleVoice={handleToggleVoice}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenProfile={() => setShowProfileEditor(true)}
       />
 
       {/* Primary Workspace Viewport */}
@@ -356,6 +359,17 @@ export default function App() {
           onComplete={handleCompleteOnboarding}
           voiceEnabled={voiceEnabled}
           onToggleVoice={handleToggleVoice}
+        />
+      )}
+
+      {showProfileEditor && userProfile && (
+        <UserPref
+          profile={userProfile}
+          onSave={(profile) => {
+            setUserProfile(profile);
+            setShowProfileEditor(false);
+          }}
+          onClose={() => setShowProfileEditor(false)}
         />
       )}
 

@@ -433,7 +433,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
 
           {/* The "What to notice" box, directly under Seren's speech box */}
           {partCueTips.length > 0 && (
-            <div className="mt-3 shrink-0 flex items-start gap-2 rounded-xl bg-[#ffb86c]/10 border border-[#ffb86c]/30 p-3">
+            <div className="mt-3 w-full max-w-[320px] sm:max-w-[340px] mx-auto shrink-0 flex items-start gap-2 rounded-xl bg-[#ffb86c]/10 border border-[#ffb86c]/30 p-3">
               <Lightbulb className="w-4 h-4 text-[#ffb86c] shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[#ffb86c] mb-1">

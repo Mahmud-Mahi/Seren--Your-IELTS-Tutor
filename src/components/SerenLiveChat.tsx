@@ -117,6 +117,9 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   const [greetingDone, setGreetingDone] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatWindowRef = useRef<HTMLDivElement>(null);
+  const [messageAreaHeight, setMessageAreaHeight] = useState<number | null>(null);
+  const [chatWindowHeight, setChatWindowHeight] = useState<number | null>(null);
   const isRecordingRef = useRef(false);
   const stoppingInterviewRef = useRef(false);
   const currentQuestionIdxRef = useRef(0);
@@ -192,14 +195,14 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // right after `setSelectedTopicMode(mode)` — the state variable is still the
   // OLD mode in that closure, which previously dumped the interview greeting
   // into the Casual chat thread. `modeRef.current` is updated immediately.
-  const setMessagesForActiveMode = (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+  const setMessagesForActiveMode = useCallback((updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
     setMessagesByMode((prev) => {
       const mode = modeRef.current;
       const current = prev[mode];
       const next = typeof updater === 'function' ? (updater as (p: ChatMessage[]) => ChatMessage[])(current) : updater;
       return { ...prev, [mode]: next };
     });
-  };
+  }, []);
 
   // Persist used topics
   useEffect(() => {
@@ -816,6 +819,10 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // transcribes with local Whisper (no AI modification) and drops the text
   // into the composer. Stop never auto-sends — the user presses Send.
   const handleToggleMic = async () => {
+    // Whisper runs after recording stops. Keep the mic action locked for the
+    // whole async transcription so a second recorder cannot start in parallel.
+    if (isTranscribing) return;
+
     if (isRecording) {
       setIsRecording(false);
       isRecordingRef.current = false;
@@ -976,6 +983,40 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     }
   };
 
+  const handleMessageAreaResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const resizeHandle = event.currentTarget;
+    const scrollArea = resizeHandle.previousElementSibling as HTMLElement | null;
+    const chatWindow = chatWindowRef.current;
+    const composer = resizeHandle.nextElementSibling as HTMLElement | null;
+    if (!scrollArea || !chatWindow || !composer) return;
+
+    const startY = event.clientY;
+    const startHeight = scrollArea.getBoundingClientRect().height;
+    const minHeight = 180;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      // Measure the composer on every move: its height changes between typed,
+      // recording, transcription, and evaluation states.
+      const reservedHeight =
+        composer.getBoundingClientRect().height + resizeHandle.getBoundingClientRect().height;
+      const nextHeight = Math.max(minHeight, startHeight + moveEvent.clientY - startY);
+      setMessageAreaHeight(nextHeight);
+      setChatWindowHeight(nextHeight + reservedHeight);
+    };
+    const handleMouseUp = () => {
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
   const isInterviewMode = selectedTopicMode === 'Interview';
 
   // Keyboard shortcut (customizable in Settings) for the mode switch above.
@@ -1050,7 +1091,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       </div>
 
       {/* Main Grid: Avatar & Chat Window */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4 items-stretch flex-1 min-h-0 overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4 items-stretch flex-1 min-h-0">
         {/* Seren Avatar & Tips Column (4 cols) — tips keep their natural height
             and the chat terminal stretches to match, so tips are never cut */}
         <div className="lg:col-span-4 flex flex-col min-h-0 space-y-2.5 sm:space-y-3">
@@ -1071,7 +1112,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
           {/* 1v1 Interview tips — fixed content, always fully visible */}
           {isInterviewMode && (
-            <div className="shrink-0 p-3 sm:p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] space-y-2">
+            <div className="w-full max-w-[320px] sm:max-w-[340px] mx-auto shrink-0 p-3 sm:p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] space-y-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#8be9fd] flex items-center gap-1.5">
                 <Lightbulb className="w-3.5 h-3.5 text-[#f1fa8c]" />
                 Examiner Tips for Your Interview
@@ -1098,7 +1139,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
           {/* Casual chat quick prompts — fixed content, always fully visible */}
           {!isInterviewMode && (
-            <div className="shrink-0 p-3 sm:p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] space-y-2">
+            <div className="w-full max-w-[320px] sm:max-w-[340px] mx-auto shrink-0 p-3 sm:p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] space-y-2">
               <span className="text-xs font-semibold uppercase tracking-wider text-[#6272a4] flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-[#8be9fd]" />
                 Quick Conversation Starters:
@@ -1126,11 +1167,18 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
         {/* Chat History & Input Terminal (8 cols) — height-capped so the
             messages ScrollArea scrolls internally; tips column is never clipped */}
-        <div className="lg:col-span-8 flex flex-col h-full min-h-0 lg:max-h-[calc(100dvh-9rem)] rounded-2xl sm:rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md overflow-hidden">
+        <div
+          ref={chatWindowRef}
+          className="lg:col-span-8 flex flex-col h-full min-h-0 rounded-2xl sm:rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md overflow-hidden"
+          style={chatWindowHeight === null ? undefined : { height: `${chatWindowHeight}px` }}
+        >
 
           {/* Messages Stream — bounded scroll area: the window keeps a fixed
               height and old messages scroll away instead of stretching the page */}
-          <ScrollArea className="flex-1 max-h-[55vh] lg:max-h-none p-3.5 sm:p-5 space-y-3 sm:space-y-4">
+          <ScrollArea
+            className={`${messageAreaHeight === null ? 'flex-1 max-h-[55vh] lg:max-h-none' : 'flex-none max-h-none'} p-3.5 sm:p-5 space-y-3 sm:space-y-4`}
+            style={messageAreaHeight === null ? undefined : { height: `${messageAreaHeight}px` }}
+          >
             {messages.map((msg, msgIdx) => {
               const isUser = msg.sender === 'user';
               const prevMsg = messages[msgIdx - 1];
@@ -1144,7 +1192,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   title={userProfile.nickname}
                 >
                   <img
-                    src={USER_AVATAR_IMAGE}
+                    src={userProfile.avatarUrl || USER_AVATAR_IMAGE}
                     alt={userProfile.nickname}
                     className="w-full h-full object-cover"
                     draggable={false}
@@ -1278,6 +1326,17 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
             <div ref={messagesEndRef} />
           </ScrollArea>
 
+          <div
+            role="separator"
+            aria-label="Resize chat messages area"
+            aria-orientation="horizontal"
+            onMouseDown={handleMessageAreaResizeStart}
+            className="group flex h-2 shrink-0 cursor-ns-resize items-center justify-center border-y border-[#44475a]/60 bg-[#21222c] hover:bg-[#44475a]"
+            title="Drag to resize the messages area"
+          >
+            <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+          </div>
+
           {/* Bottom Bar — messenger-style composer (Discord/WhatsApp-like) */}
           {isInterviewMode ? (
             <div className="shrink-0 p-3 sm:p-4 bg-[#21222c] border-t border-[#44475a]">
@@ -1331,6 +1390,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   onChange={updateAnswerText}
                   onSend={submitInterviewAnswer}
                   isRecording={isRecording}
+                  isTranscribing={isTranscribing}
                   recordingHint="Listening — press stop, then Whisper transcribes your answer"
                   disabled={isEvaluating || !greetingDone || (!isInterviewActive && topicQuestions.length > 0)}
                   placeholder={
@@ -1396,12 +1456,13 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   id="chat-toggle-mic-btn"
                   type="button"
                   onClick={handleToggleMic}
+                  disabled={isTranscribing || isLoading}
                   className={`p-3 rounded-2xl border transition-all ${
                     isRecording
                       ? 'bg-[#ff5555] border-[#ff5555] text-[#f8f8f2] animate-pulse shadow-lg shadow-[#ff5555]/25'
-                      : 'bg-[#282a36] border-[#44475a] text-[#50fa7b] hover:bg-[#44475a]'
+                      : 'bg-[#282a36] border-[#44475a] text-[#50fa7b] hover:bg-[#44475a] disabled:opacity-50 disabled:cursor-not-allowed'
                   }`}
-                  title={isRecording ? 'Stop Recording' : 'Speak into microphone'}
+                  title={isTranscribing ? 'Transcribing your speech...' : isRecording ? 'Stop Recording' : 'Speak into microphone'}
                 >
                   {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                 </button>
@@ -1414,6 +1475,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   onChange={handleInputChange}
                   onSend={() => handleSendMessage()}
                   isRecording={isRecording}
+                  isTranscribing={isTranscribing}
                   recordingHint="Listening — press stop, then Whisper transcribes your speech"
                   disabled={isLoading}
                   placeholder="Type or speak your answer to Seren..."

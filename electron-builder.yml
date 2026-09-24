@@ -42,6 +42,16 @@ files:
   - '!src/**'
   - '!assets/**'
 
+# Ship the full-precision runtime Whisper files. The app copies them into its writable
+# data directory on first launch instead of downloading them during recording.
+extraResources:
+  - from: models/sherpa-onnx-whisper-base.en
+    to: models/sherpa-onnx-whisper-base.en
+    filter:
+      - base.en-encoder.onnx
+      - base.en-decoder.onnx
+      - base.en-tokens.txt
+
 # Nothing native to compile: sherpa-onnx (STT) is WebAssembly and msedge-tts is
 # pure JS — so no rebuild step, which keeps packaging fast and predictable.
 npmRebuild: false

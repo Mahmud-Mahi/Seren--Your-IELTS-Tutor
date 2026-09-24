@@ -4,6 +4,7 @@ export type SerenMood = 'greeting' | 'speaking' | 'listening' | 'encouraging' | 
 
 export interface UserProfile {
   nickname: string;
+  avatarUrl?: string;
   goal: string; // e.g. 'IELTS Academic', 'IELTS General', 'Career & Job Interviews', 'Study Abroad', 'Daily Conversational Fluency'
   targetAudience: string; // e.g. 'IELTS Examiners', 'Native English Speakers', 'International Colleagues', 'University Professors'
   targetBand: string; // e.g. '6.5', '7.0', '7.5', '8.0', '8.5+'

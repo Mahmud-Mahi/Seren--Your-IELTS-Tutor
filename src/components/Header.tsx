@@ -12,6 +12,7 @@ interface HeaderProps {
   voiceEnabled: boolean;
   onToggleVoice: () => void;
   onOpenSettings: () => void;
+  onOpenProfile: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   voiceEnabled,
   onToggleVoice,
   onOpenSettings,
+  onOpenProfile,
 }) => {
   // Shortcut hints for the tooltips (bindings are user-customizable in Settings).
   const diagnosticHint = useShortcutHint('nav.diagnostic');
@@ -48,17 +50,6 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </div>
             <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#50fa7b] ring-2 ring-[#282a36] animate-pulse" />
-          </div>
-
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-base sm:text-lg tracking-tight text-[#f8f8f2] font-sans">
-                SEREN
-              </span>
-            </div>
-            <p className="text-[11px] text-[#6272a4] hidden sm:block">
-              Your IELTS Tutor
-            </p>
           </div>
         </div>
 
@@ -156,10 +147,15 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Right Tools: Profile Badge & Audio Toggle */}
         <div className="flex items-center gap-2">
           {userProfile && (
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-xl bg-[#21222c] border border-[#44475a] text-xs">
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-xl bg-[#21222c] border border-[#44475a] hover:border-[#bd93f9] hover:bg-[#44475a]/40 transition-colors text-left text-xs"
+              title="Edit your profile and learning preferences"
+            >
               <span className="w-7 h-7 rounded-full border-2 border-[#ff79c6]/50 overflow-hidden bg-[#282a36] shrink-0">
                 <img
-                  src={USER_AVATAR_IMAGE}
+                  src={userProfile.avatarUrl || USER_AVATAR_IMAGE}
                   alt={userProfile.nickname}
                   className="w-full h-full object-cover"
                   draggable={false}
@@ -167,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
               <span className="font-semibold text-[#f8f8f2]">{userProfile.nickname}</span>
               <span className="text-[#ffb86c] font-mono font-medium">Band {userProfile.targetBand}</span>
-            </div>
+            </button>
           )}
 
           <button

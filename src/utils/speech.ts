@@ -883,14 +883,21 @@ export class AudioRecorderController {
         return false;
       }
 
+      // Arm the level monitor before its first animation-frame tick.
+      this.isRecording = true;
+
       // Setup audio analyzer for the live mic equalizer / level monitoring
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioCtx) {
           this.audioContext = new AudioCtx();
+          if (this.audioContext.state === 'suspended') {
+            void this.audioContext.resume().catch(() => {});
+          }
           const source = this.audioContext.createMediaStreamSource(this.stream);
           this.analyser = this.audioContext.createAnalyser();
           this.analyser.fftSize = 256;
+          this.analyser.smoothingTimeConstant = 0.72;
           source.connect(this.analyser);
 
           const bufferLength = this.analyser.frequencyBinCount;
@@ -898,13 +905,16 @@ export class AudioRecorderController {
 
           const monitorLevel = () => {
             if (!this.isRecording || !this.analyser) return;
-            this.analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
+            this.analyser.getByteTimeDomainData(dataArray);
+            let sumSquares = 0;
             for (let i = 0; i < bufferLength; i++) {
-              sum += dataArray[i];
+              const sample = (dataArray[i] - 128) / 128;
+              sumSquares += sample * sample;
             }
-            const avg = sum / bufferLength;
-            const normalized = Math.min(1, avg / 100);
+            // RMS tracks the actual microphone waveform. Frequency-bin
+            // averages tend to stay near zero for speech after suppression.
+            const rms = Math.sqrt(sumSquares / bufferLength);
+            const normalized = Math.min(1, Math.max(0, (rms - 0.008) * 5.5));
             this.onLevelUpdate?.(normalized);
             for (const listener of Array.from(this.levelListeners)) {
               try {
@@ -941,9 +951,9 @@ export class AudioRecorderController {
       };
 
       this.mediaRecorder.start(250); // Slice chunks every 250ms
-      this.isRecording = true;
       return true;
     } catch (e) {
+      this.isRecording = false;
       console.warn('Audio recorder startup error:', e);
       return false;
     }

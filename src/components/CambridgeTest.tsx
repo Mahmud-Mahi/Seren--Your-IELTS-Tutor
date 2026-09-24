@@ -1149,9 +1149,14 @@ useEffect(() => {
                       className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50 focus:border-[#bd93f9] resize-y overflow-auto"
                       style={{ maxHeight: currentQ.part === 2 ? '280px' : '220px', scrollBehavior: 'smooth' }}
                     />
-                    {isRecording && (
+                    {(isRecording || isTranscribing) && (
                       <div className="absolute inset-0 rounded-2xl bg-[#21222c]/95 border border-[#44475a] flex items-center justify-center px-4">
-                        <MicEqualizer active />
+                        {isTranscribing ? (
+                          <div className="flex items-center gap-2 text-xs text-[#bd93f9]">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Transcribing your speech...
+                          </div>
+                        ) : <MicEqualizer active />}
                       </div>
                     )}
                   </div>

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Target, Users, Award, Sparkles, ArrowRight, CheckCircle2, BookOpen } from 'lucide-react';
+import { User, Target, Users, Award, Sparkles, ArrowRight, CheckCircle2, BookOpen, Upload, X } from 'lucide-react';
 import { UserProfile } from '../types';
 import { SerenAvatar } from './SerenAvatar';
 import { soundFX } from '../utils/speech';
+import { USER_AVATAR_IMAGE } from '../assets/characterAssets';
 
 interface OnboardingModalProps {
   onComplete: (profile: UserProfile) => void;
@@ -18,6 +19,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [nickname, setNickname] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [goal, setGoal] = useState('IELTS Academic');
   const [targetAudience, setTargetAudience] = useState('IELTS Examiners');
   const [targetBand, setTargetBand] = useState('7.5');
@@ -70,6 +72,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     }
   };
 
+  const handleAvatarChange = (file: File | undefined) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => setAvatarUrl(typeof reader.result === 'string' ? reader.result : '');
+    reader.readAsDataURL(file);
+  };
+
   const handleNextStep = () => {
     soundFX.unlock();
     soundFX.playChime('start');
@@ -81,6 +90,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     } else {
       const profile: UserProfile = {
         nickname: nickname.trim() || 'Learner',
+        avatarUrl: avatarUrl || undefined,
         goal,
         targetAudience,
         targetBand,
@@ -150,6 +160,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <label htmlFor="user-nickname-input" className="block text-xs font-semibold text-[#f8f8f2] uppercase tracking-wider">
                     What is your preferred nickname or name?
                   </label>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#ff79c6]/50 bg-[#21222c] shrink-0">
+                      <img src={avatarUrl || USER_AVATAR_IMAGE} alt="Your profile" className="w-full h-full object-cover" />
+                    </div>
+                    <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-[#44475a] bg-[#21222c] text-xs font-semibold text-[#f8f8f2] hover:border-[#bd93f9] transition-colors">
+                      <Upload className="w-3.5 h-3.5 text-[#8be9fd]" />
+                      Change image
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleAvatarChange(e.target.files?.[0])} />
+                    </label>
+                    {avatarUrl && (
+                      <button type="button" onClick={() => setAvatarUrl('')} className="p-2 text-[#6272a4] hover:text-[#ff5555]" title="Use default image">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                   <div className="relative">
                     <input
                       id="user-nickname-input"

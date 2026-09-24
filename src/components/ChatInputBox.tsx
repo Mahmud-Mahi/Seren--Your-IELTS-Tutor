@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { Loader2 } from 'lucide-react';
 import { MicEqualizer } from './MicEqualizer';
 
 interface ChatInputBoxProps {
@@ -24,6 +25,8 @@ interface ChatInputBoxProps {
    * press stop, then Whisper transcribes your speech").
    */
   recordingHint?: string;
+  /** True while the stopped recording is being transcribed. */
+  isTranscribing?: boolean;
 }
 
 /**
@@ -48,6 +51,7 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
   containerClassName = '',
   isRecording = false,
   recordingHint,
+  isTranscribing = false,
 }) => {
   const ref = useRef<HTMLTextAreaElement>(null);
   // True when the latest value change came from the user typing/pasting
@@ -126,13 +130,20 @@ export const ChatInputBox: React.FC<ChatInputBoxProps> = ({
   // Recording mode: the composer becomes a ChatGPT/Gemini-style live mic
   // equalizer — no text is shown/typed while the mic is open (Whisper only
   // transcribes AFTER the user presses stop).
-  if (isRecording) {
+  if (isRecording || isTranscribing) {
     return (
       <div className={`flex flex-col ${containerClassName}`}>
-        <div className="flex items-center w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#282a36] border border-[#44475a] overflow-hidden">
-          <MicEqualizer active />
+        <div className="flex items-center justify-center gap-2 w-full h-[44px] min-h-[44px] max-h-[44px] px-4 py-2.5 rounded-2xl bg-[#282a36] border border-[#44475a] overflow-hidden">
+          {isTranscribing ? (
+            <>
+              <Loader2 className="w-4 h-4 text-[#bd93f9] animate-spin" />
+              <span className="text-xs text-[#bd93f9]">Transcribing your speech...</span>
+            </>
+          ) : (
+            <MicEqualizer active />
+          )}
         </div>
-        {recordingHint && (
+        {recordingHint && isRecording && (
           <p className="pt-1.5 px-1 text-[10px] text-[#6272a4]">{recordingHint}</p>
         )}
       </div>
