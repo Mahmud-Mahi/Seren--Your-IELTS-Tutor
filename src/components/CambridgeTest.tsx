@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic,
@@ -18,11 +18,12 @@ import {
 } from 'lucide-react';
 import { DiagnosticQuestion, UserProfile, SpeakingEvaluation } from '../types';
 import { CAMBRIDGE_TESTS, getCambridgeTestById } from '../data/cambridgeTests';
+import { asCambridgeQuestions, isScoredPart } from '../data/part0Intro';
 import { SerenAvatar } from './SerenAvatar';
 import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../utils/speech';
 import { MicEqualizer } from './MicEqualizer';
 import confetti from 'canvas-confetti';
-import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing } from '../utils/greetings';
+import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing, examInterviewClosing } from '../utils/greetings';
 
 interface CambridgeTestProps {
   userProfile: UserProfile;
@@ -86,10 +87,18 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const [analyzingStage, setAnalyzingStage] = useState('');
   const [autoAdvanceNotice, setAutoAdvanceNotice] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [showManualEdit, setShowManualEdit] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const selectedTest = selectedTestId ? getCambridgeTestById(selectedTestId) ?? null : null;
-  const questions: DiagnosticQuestion[] = selectedTest?.questions || [];
+  // The FULL flow: the examiner's Part-0 introduction (identity check) followed
+  // by this test's own Part 1-3 questions, which stay completely untouched.
+  // Memoized per test so `currentQ` keeps a stable identity for the effects
+  // below (a brand-new array on every render would loop them).
+  const questions: DiagnosticQuestion[] = useMemo(
+    () => (selectedTest ? [...asCambridgeQuestions(selectedTest.id), ...selectedTest.questions] : []),
+    [selectedTest]
+  );
+  // Only Part 1 | 2 | 3 is ever scored — Part-0 answers are never submitted.
+  const scoredQuestions = useMemo(() => questions.filter((q) => isScoredPart(q.part)), [questions]);
   const currentQ: DiagnosticQuestion = questions[currentIdx] || questions[0] || DIAGNOSTIC_FALLBACK_QUESTION;
   const currentTranscript = transcripts[currentQ.id] || '';
 
@@ -118,6 +127,10 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const finalizePromiseRef = useRef<Promise<void>>(Promise.resolve());
   // Pending post-expiry finalize that a manual stop must cancel
   const expireTimerRef = useRef<any>(null);
+  // Examiner's closing line -> report handoff (the report must never be
+  // submitted twice) plus its bounded fallback timer.
+  const endingInFlightRef = useRef(false);
+  const noticeTimerRef = useRef<any>(null);
   const waitingRef = useRef(false);
   // Whether Seren's spoken question intro actually began (set from SerenAvatar's onStart)
   const introSpeechStartedRef = useRef(false);
@@ -135,12 +148,19 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   // keyed to the question's position within its part, so she never repeats the
   // same framing line on every question of Part 1 / Part 3.
   const getQuestionSpeech = (idx: number, q: DiagnosticQuestion, nickname: string) => {
-    // Zero-based position of this question WITHIN its part (0 = first question
-    // of that part — those still get the "Let's begin with Part 1." / "And
-    // finally, Part 3..." announcements so transitions are always clear).
+    // Part 0 IS the examiner's line — no opener/closing framing around it.
+    if (q.part === 0) return q.question;
+
+    // Zero-based position of this question WITHIN its part. Index 0 of every
+    // part receives the real scripted transition (Part 1 / Part 2 / Part 3),
+    // while later questions rotate the natural framing lines so the examiner
+    // never sounds like a broken record.
     const partQuestionIndex = questions.slice(0, idx).filter((x) => x.part === q.part).length;
 
-    const partIntro = cambridgeQuestionOpener(q.part, partQuestionIndex);
+    // The Part-3 transition refers back to this test's Part-2 cue-card topic.
+    const contextTopic = q.part === 3 ? questions.find((x) => x.part === 2)?.topic : undefined;
+
+    const partIntro = cambridgeQuestionOpener(q.part, partQuestionIndex, contextTopic);
 
     const bullets =
       q.bulletPoints && q.bulletPoints.length > 0
@@ -194,6 +214,10 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
         clearTimeout(prepGateCapRef.current);
         prepGateCapRef.current = null;
       }
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = null;
+      }
       void activeAudioRecorder.stop().catch(() => {});
     };
   }, []);
@@ -227,10 +251,6 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
     setHintText('');
     setShowHint(false);
   };
-
-  const transcriptDisplayValue = showHint && hintText
-    ? `${currentTranscript}${currentTranscript ? '\n\n' : ''}${hintText}`
-    : currentTranscript;
 
   // Release the Part 2 prep-clock hold (and clear its safety-net timers)
   const releasePrepGate = () => {
@@ -409,7 +429,7 @@ useEffect(() => {
           // and proceeds manually via "Next" / "Evaluate My English"
           setAutoAdvanceNotice(
             questions.length > 0 && currentIdx < questions.length - 1
-              ? `Part ${currentIdx + 1} time complete! Review your answer, then press Next.`
+              ? `Part ${currentQ.part} time complete! Review your answer, then press Next.`
               : 'Time complete! Press "Evaluate My English" when ready.'
           );
           setTimeout(() => setAutoAdvanceNotice(''), 4000);
@@ -551,8 +571,29 @@ useEffect(() => {
     if (questions.length === 0) return;
     if (currentIdx < questions.length - 1) {
       setCurrentIdx(currentIdx + 1);
+      return;
+    }
+    if (endingInFlightRef.current) return;
+    endingInFlightRef.current = true;
+
+    // The real test ends with the examiner's closing line. Seren says it first
+    // and the report is generated afterwards — with a bounded fallback so a
+    // muted or blocked TTS engine can never hold the report hostage.
+    const closingText = examInterviewClosing();
+    setAutoAdvanceNotice(closingText);
+    const beginEvaluation = () => {
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = null;
+      }
+      setAutoAdvanceNotice('');
+      void submitDiagnosticEvaluation();
+    };
+    if (voiceEnabled && closingText.trim()) {
+      serenVoice.speak(closingText, { onEnd: beginEvaluation });
+      noticeTimerRef.current = setTimeout(beginEvaluation, 6000);
     } else {
-      submitDiagnosticEvaluation();
+      noticeTimerRef.current = setTimeout(beginEvaluation, 800);
     }
   };
 
@@ -570,6 +611,11 @@ useEffect(() => {
       clearTimeout(expireTimerRef.current);
       expireTimerRef.current = null;
     }
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    endingInFlightRef.current = false;
     waitingRef.current = false;
     releasePrepGate();
     isRecordingRef.current = false;
@@ -601,13 +647,18 @@ useEffect(() => {
     // Never fabricate a score for silence: if essentially nothing was spoken
     // (or typed) across all three parts, refuse to evaluate. This also stops
     // mic-noise Whisper hallucinations from unlocking a Band 7.5 report.
-    const preWords = Object.values(transcriptsRef.current)
+    // Only the SCORED parts count here: Part-0 identity-check words must never
+    // unlock a report for an otherwise silent test.
+    const preWords = scoredQuestions
+      .map((q) => transcriptsRef.current[q.id] || '')
       .join(' ')
       .trim()
       .split(/\s+/)
       .filter(Boolean).length;
     if (preWords < 3) {
       soundFX.playChime('tick');
+      // Allow the examiner's closing line to be re-triggered after the warning.
+      endingInFlightRef.current = false;
       setAutoAdvanceNotice(
         `I couldn't hear any answers yet, ${userProfile.nickname}! Please speak at least one response before evaluating.`
       );
@@ -648,7 +699,8 @@ useEffect(() => {
     // (Previously an empty part silently submitted the polished Band 8.5+
     // sample answer and a fake 135-word floor, so an unanswered test could
     // score 7.5+ on the strength of text the student never spoke.)
-    const responsesPayload = questions.map((q) => {
+    // Part 1 | 2 | 3 only — the API never sees the Part-0 identity check.
+    const responsesPayload = scoredQuestions.map((q) => {
       const transcript = (finalTranscripts[q.id] || '').trim();
       return {
         id: q.id,
@@ -841,7 +893,7 @@ useEffect(() => {
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base font-bold text-[#f8f8f2]">{currentQ.partTitle}</h2>
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#bd93f9]/15 border border-[#bd93f9]/40 text-[#bd93f9] font-medium whitespace-nowrap">
-                Diagnostic Step {currentQ.part} of 3
+                {currentQ.part === 0 ? 'Identity check · not scored' : `Diagnostic Step ${currentQ.part} of 3`}
               </span>
             </div>
             <p className="text-xs text-[#6272a4] mt-0.5 truncate">Topic: {currentQ.topic}</p>
@@ -850,7 +902,7 @@ useEffect(() => {
 
         {questions.length > 0 && (
           <div className="flex items-center gap-2 shrink-0">
-            {[1, 2, 3].map((part) => {
+            {[0, 1, 2, 3].map((part) => {
               const partIdxs = questions
                 .map((q, idx) => ({ q, idx }))
                 .filter((x) => x.q.part === part);
@@ -1143,9 +1195,9 @@ useEffect(() => {
                     <textarea
                       id={`transcript-input-${currentQ.id}`}
                       rows={currentQ.part === 2 ? 7 : 5}
-                      value={transcriptDisplayValue}
-                      readOnly
-                      placeholder="Your words will appear here after you stop speaking — Whisper transcribes your recording. Press Show Hint to add a guiding sentence without overwriting the spoken transcript."
+                      value={currentTranscript}
+                      onChange={(e) => handleTranscriptChange(e.target.value)}
+                      placeholder="Type your answer here, or speak and let Whisper transcribe it after you stop."
                       className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50 focus:border-[#bd93f9] resize-y overflow-auto"
                       style={{ maxHeight: currentQ.part === 2 ? '280px' : '220px', scrollBehavior: 'smooth' }}
                     />
@@ -1160,6 +1212,11 @@ useEffect(() => {
                       </div>
                     )}
                   </div>
+                  {showHint && hintText && (
+                    <div className="p-3 rounded-xl bg-[#bd93f9]/10 border border-[#bd93f9]/30 text-xs text-[#f8f8f2]/80">
+                      {hintText}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-3 border-t border-[#44475a]">
@@ -1178,7 +1235,7 @@ useEffect(() => {
                     id="next-question-btn"
                     type="button"
                     onClick={handleNextQuestion}
-                    disabled={isAnalyzing || !currentTranscript.trim()}
+                    disabled={isAnalyzing || (!currentTranscript.trim() && currentQ.part !== 0)}
                     className="px-6 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 text-[#282a36] font-bold text-xs sm:text-sm shadow-lg shadow-[#bd93f9]/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {isAnalyzing ? (

@@ -71,15 +71,60 @@ const PART3_CLOSINGS = [
   'Take a moment to structure your thoughts, then dive in.',
 ];
 
+// ---- The examiner's scripted part transitions -------------------------------
+// These are the real lines a live IELTS examiner reads before each part. The
+// Cambridge Test tab AND the 1v1 Interview tab share the SAME Part-0 intro
+// (src/data/part0Intro.ts) and the SAME Part-1 transition, so both modes feel
+// like one continuous test.
+
+/** Part 1 transition — spoken before the very first Part-1 question. */
+export const PART1_TRANSITION_LINE =
+  "Now, in this first part, I'd like to ask you some questions about yourself.";
+
+/**
+ * Part 2 transition — the examiner's cue-card instructions. The 1-minute prep
+ * gate that follows is already handled by the Cambridge test's prep phase.
+ */
+export const PART2_TRANSITION_LINE =
+  "Now, I'm going to give you a topic, and I'd like you to talk about it for one to two minutes. Before you talk, you'll have one minute to think about what you're going to say. You can make some notes if you wish.";
+
+/** Part 3 transition — links the abstract discussion back to the Part-2 topic. */
+export function part3TransitionLine(part2Topic?: string): string {
+  const topic = (part2Topic || '').trim();
+  return topic
+    ? `We've been talking about ${topic}, and I'd like to discuss with you one or two more general questions related to this.`
+    : "We've been talking about the topic of your long turn, and I'd like to discuss with you one or two more general questions related to this.";
+}
+
+/** Examiner's closing line — the last thing heard before the report is built. */
+export function examInterviewClosing(): string {
+  return 'Thank you. That is the end of the speaking test.';
+}
+
 function pickRotating(list: string[], partQuestionIndex: number): string {
   return list[partQuestionIndex % list.length];
 }
 
-/** Spoken opener for a Cambridge test question (varies per question). */
-export function cambridgeQuestionOpener(part: 1 | 2 | 3, partQuestionIndex: number): string {
-  if (part === 1) return pickRotating(PART1_OPENERS, partQuestionIndex);
-  if (part === 2) return 'Now for Part 2, here is your cue card.';
-  return pickRotating(PART3_OPENERS, partQuestionIndex);
+/**
+ * Spoken opener for a Cambridge test question (varies per question).
+ *
+ * The FIRST question of each part opens with the examiner's real scripted
+ * transition (Part 1 = PART1_TRANSITION_LINE, Part 2 = PART2_TRANSITION_LINE,
+ * Part 3 = part3TransitionLine). Later questions rotate the natural framing
+ * lines above so the examiner never sounds like a broken record.
+ */
+export function cambridgeQuestionOpener(
+  part: 1 | 2 | 3,
+  partQuestionIndex: number,
+  contextTopic?: string
+): string {
+  if (part === 1) {
+    return partQuestionIndex === 0 ? PART1_TRANSITION_LINE : pickRotating(PART1_OPENERS, partQuestionIndex);
+  }
+  if (part === 2) return PART2_TRANSITION_LINE;
+  return partQuestionIndex === 0
+    ? part3TransitionLine(contextTopic)
+    : pickRotating(PART3_OPENERS, partQuestionIndex);
 }
 
 /** Spoken closing for a Cambridge test question (varies per question). */

@@ -21,10 +21,17 @@ import { ScrollArea } from './ScrollArea';
 import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../utils/speech';
 import { getAutoMicEnabled } from '../utils/preferences';
 import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
-import { pickRandomTopic, getQuestionsByTopic, type IELTSPart1Question } from '../data/ieltsQuestionsP1';
+import { buildPart1QuestionSet, type IELTSPart1Question } from '../data/ieltsQuestionsP1';
+import { asInterviewSteps } from '../data/part0Intro';
 import { SEREN_PROFILE_IMAGE, USER_AVATAR_IMAGE } from '../assets/characterAssets';
 import { loadMessagesByMode, saveMessagesByMode, loadInterviewSession, saveInterviewSession } from '../utils/chatHistory';
-import { greetInterview, casualSessionOpener, casualFallbackOpener } from '../utils/greetings';
+import {
+  greetInterview,
+  casualSessionOpener,
+  casualFallbackOpener,
+  PART1_TRANSITION_LINE,
+  examInterviewClosing,
+} from '../utils/greetings';
 import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 
 interface SerenLiveChatProps {
@@ -44,6 +51,38 @@ const SPEECH_HANDOFF_CAP_MS = 90_000;
 // is remembered so returning users never lose their place when they come back
 // to the chat tab.
 const CHAT_MODE_KEY = 'seren_chat_mode';
+const CHAT_LAYOUT_KEY = 'seren_chat_layout';
+
+interface ChatLayout {
+  messageAreaHeight: number | null;
+  chatWindowHeight: number | null;
+}
+
+function loadSavedChatLayout(): ChatLayout {
+  try {
+    const saved = localStorage.getItem(CHAT_LAYOUT_KEY);
+    if (saved) {
+      const layout = JSON.parse(saved);
+      if (
+        typeof layout.messageAreaHeight === 'number' &&
+        Number.isFinite(layout.messageAreaHeight) &&
+        layout.messageAreaHeight >= 180 &&
+        typeof layout.chatWindowHeight === 'number' &&
+        Number.isFinite(layout.chatWindowHeight) &&
+        layout.chatWindowHeight >= layout.messageAreaHeight
+      ) {
+        return layout;
+      }
+    }
+  } catch {}
+  return { messageAreaHeight: null, chatWindowHeight: null };
+}
+
+function saveChatLayout(layout: ChatLayout): void {
+  try {
+    localStorage.setItem(CHAT_LAYOUT_KEY, JSON.stringify(layout));
+  } catch {}
+}
 
 function loadSavedChatMode(): 'Interview' | 'Casual Chat' {
   try {
@@ -108,18 +147,28 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     try { return JSON.parse(localStorage.getItem('seren_used_topics') || '[]'); } catch { return []; }
   });
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
-  const [topicQuestions, setTopicQuestions] = useState<IELTSPart1Question[]>([]);
+  const [flowSteps, setFlowSteps] = useState<IELTSPart1Question[]>([]);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
   const [isInterviewActive, setIsInterviewActive] = useState(false);
   const [isSerenSpeakingQ, setIsSerenSpeakingQ] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [greetingDone, setGreetingDone] = useState(false);
+  // Part-0 model-answer hint (identity check only — never scored).
+  const [showHint, setShowHint] = useState(false);
+  const [hintText, setHintText] = useState('');
+
+  // Part-0 steps are the examiner's identity check: asked and shown exactly like
+  // the real test, but never scored and never posted to the evaluation API.
+  const part0Count = flowSteps.filter((step) => step.part === 'Part 0').length;
+  const part1Steps = flowSteps.filter((step) => step.part !== 'Part 0');
+  const currentStep = flowSteps[currentQuestionIdx];
+  const isPart0Step = currentStep?.part === 'Part 0';
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatWindowRef = useRef<HTMLDivElement>(null);
-  const [messageAreaHeight, setMessageAreaHeight] = useState<number | null>(null);
-  const [chatWindowHeight, setChatWindowHeight] = useState<number | null>(null);
+  const [chatLayout, setChatLayout] = useState<ChatLayout>(loadSavedChatLayout);
+  const { messageAreaHeight, chatWindowHeight } = chatLayout;
   const isRecordingRef = useRef(false);
   const stoppingInterviewRef = useRef(false);
   const currentQuestionIdxRef = useRef(0);
@@ -153,7 +202,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
         // the persisted interview session.
         const finished = session.currentQuestionIdx >= session.questions.length;
         setCurrentTopic(session.topic);
-        setTopicQuestions(session.questions);
+        setFlowSteps(session.questions);
         setCurrentQuestionIdx(session.currentQuestionIdx);
         setUserAnswers(session.userAnswers);
         lastAnsweredIdxRef.current = session.lastAnsweredIdx;
@@ -212,18 +261,18 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // Persist the interview session state machine (topic, question list, current
   // index, answers) so a page reload or an Interview ⇌ Casual round-trip can
   // resume the SAME question flow. Without this only the chat bubbles survived
-  // while `topicQuestions` reset to [] — so the very next answer jumped
+  // while `flowSteps` reset to [] — so the very next answer jumped
   // straight to "That was the last question" after a single response.
   useEffect(() => {
-    if (!currentTopic || topicQuestions.length === 0) return;
+    if (!currentTopic || flowSteps.length === 0) return;
     saveInterviewSession({
       topic: currentTopic,
-      questions: topicQuestions,
+      questions: flowSteps,
       currentQuestionIdx,
       userAnswers,
       lastAnsweredIdx: lastAnsweredIdxRef.current,
     });
-  }, [currentTopic, topicQuestions, currentQuestionIdx, userAnswers]);
+  }, [currentTopic, flowSteps, currentQuestionIdx, userAnswers]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -408,7 +457,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // Send handler for the interview composer: sends whatever the user typed
   // (or the live-transcript text if editing) and submits the answer.
   const submitInterviewAnswer = useCallback(() => {
-    if (!isInterviewActiveRef.current && topicQuestions.length === 0) return;
+    if (!isInterviewActiveRef.current && flowSteps.length === 0) return;
     if (!greetingDone) return;
     if (finalizingInterviewRef.current) return;
     // The user can answer even while Seren is still reading the question —
@@ -418,7 +467,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       setIsSerenSpeakingQ(false);
     }
     void finalizeInterviewAnswer(answerText);
-  }, [answerText, isSerenSpeakingQ, greetingDone, topicQuestions.length]);
+  }, [answerText, isSerenSpeakingQ, greetingDone, flowSteps.length]);
 
   // Speech-aware handoff: wait until Seren has ACTUALLY finished speaking before
   // advancing to the next stage (first question / mic handover). The previous
@@ -447,14 +496,17 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   }, []);
 
   const askQuestion = useCallback((idx: number) => {
-    if (idx >= topicQuestions.length) {
+    if (idx >= flowSteps.length) {
       // All questions done
       setIsInterviewActive(false);
       setSerenMood('encouraging');
+      // The examiner closes the test, then the report is generated.
+      setShowHint(false);
+      setHintText('');
       const doneMsg: ChatMessage = {
         id: `msg-done-${Date.now()}`,
         sender: 'seren',
-        text: `Great job, ${userProfile.nickname}! That was the last question. Let's see how you did!`,
+        text: `${examInterviewClosing()} Great job, ${userProfile.nickname}! Let's see how you did!`,
         timestamp: Date.now(),
         mood: 'encouraging',
       };
@@ -473,20 +525,29 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     finalizingInterviewRef.current = false;
 
     setCurrentQuestionIdx(idx);
-    const q = topicQuestions[idx];
+    const q = flowSteps[idx];
     setSerenMood('speaking');
     setIsSerenSpeakingQ(true);
+    // A new step always drops the previous Part-0 hint.
+    setShowHint(false);
+    setHintText('');
+
+    // The examiner reads the Part-1 transition ONCE, immediately before the very
+    // first Part-1 question of the run (the Part-0 identity check comes first).
+    const opensPart1 = q.part !== 'Part 0' && idx > 0 && flowSteps[idx - 1]?.part === 'Part 0';
+    const spokenText = opensPart1 ? `${PART1_TRANSITION_LINE} ${q.instruction}` : q.instruction;
 
     // Seren asks the question as a chat bubble (messaging UI) and reads it aloud
-    setCurrentSpeech(q.instruction);
+    setCurrentSpeech(spokenText);
     setMessagesForActiveMode((prev) => [
       ...prev,
       {
         id: `msg-q-${idx}-${Date.now()}`,
         sender: 'seren',
-        text: q.instruction,
+        text: spokenText,
         timestamp: Date.now(),
         mood: 'speaking',
+        part: q.part === 'Part 0' ? 0 : 1,
       },
     ]);
 
@@ -508,8 +569,8 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       }
     };
 
-    if (voiceEnabled && q.instruction.trim()) {
-      serenVoice.speak(q.instruction, { onEnd: beginAnswering });
+    if (voiceEnabled && spokenText.trim()) {
+      serenVoice.speak(spokenText, { onEnd: beginAnswering });
       // Safety net: if onEnd never fires (autoplay block / same-phrase short-
       // circuit), still hand the turn to the user so the mic is never stuck
       // disabled — but ONLY once she has genuinely finished (or failed to
@@ -519,24 +580,30 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       // Voice muted: no onEnd will fire, so advance to recording after a beat
       setTimeout(beginAnswering, 600);
     }
-  }, [topicQuestions, userProfile.nickname, voiceEnabled, startInterviewRecording, armSpeechHandoff]);
+  }, [flowSteps, userProfile.nickname, voiceEnabled, startInterviewRecording, armSpeechHandoff]);
 
   const startInterview = useCallback(() => {
     // Never start behind a stale mount-mode timer when the user switched away
     if (modeRef.current !== 'Interview') return;
 
-    let topic = pickRandomTopic(usedTopics);
-    if (!topic) {
+    // A Part 1 run spans 2 topics when the first topic holds 5+ questions and
+    // 3 topics when it holds 3-4 (see buildPart1QuestionSet). Exhausting the
+    // bank simply restarts the topic rotation.
+    let questionSet = buildPart1QuestionSet(usedTopics);
+    if (questionSet.questions.length === 0) {
       setUsedTopics([]);
-      topic = pickRandomTopic([]);
+      questionSet = buildPart1QuestionSet([]);
     }
-    if (!topic) return;
+    if (questionSet.questions.length === 0) return;
 
-    const questions = getQuestionsByTopic(topic);
-    setCurrentTopic(topic);
-    setTopicQuestions(questions);
+    // The full run: the examiner's Part-0 identity check, then Part 1.
+    const steps = [...asInterviewSteps(), ...questionSet.questions];
+    setCurrentTopic(questionSet.topics.join(', '));
+    setFlowSteps(steps);
     setCurrentQuestionIdx(0);
     setUserAnswers({});
+    setShowHint(false);
+    setHintText('');
     lastAnsweredIdxRef.current = -1;
     finalizingInterviewRef.current = false;
     setIsInterviewActive(true);
@@ -601,11 +668,22 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     setIsEvaluating(true);
     soundFX.playChime('start');
 
-    const totalWords = Object.values(userAnswers)
+    // Only Part-1 answers are scored — the Part-0 identity check stays out of
+    // the payload entirely (the real test does not mark it either). Each entry
+    // keeps its own flow index, so `userAnswers` stays perfectly aligned.
+    const scoredSteps = flowSteps
+      .map((step, index) => ({ step, index }))
+      .filter(({ step }) => step.part !== 'Part 0');
+
+    const totalWords = scoredSteps
+      .map(({ index }) => userAnswers[index] || '')
       .join(' ')
       .split(/\s+/)
       .filter(Boolean).length;
-    const estimatedWPM = totalWords > 0 ? Math.round((totalWords / (topicQuestions.length * 0.75)) * 1.5) : 0;
+    const estimatedWPM =
+      totalWords > 0 && scoredSteps.length > 0
+        ? Math.round((totalWords / (scoredSteps.length * 0.75)) * 1.5)
+        : 0;
 
     try {
       const res = await fetch('/api/evaluate-practice', {
@@ -614,10 +692,10 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
         body: JSON.stringify({
           userProfile,
           topic: currentTopic,
-          questions: topicQuestions.map((q, i) => ({
-            question: q.instruction,
-            userAnswer: userAnswers[i] || '',
-            sampleResponse: q.response,
+          questions: scoredSteps.map(({ step, index }) => ({
+            question: step.instruction,
+            userAnswer: userAnswers[index] || '',
+            sampleResponse: step.response,
           })),
           stats: { totalWords, estimatedWPM },
         }),
@@ -628,13 +706,13 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
         // Sentence solutions are sourced from the JSON question-bank `response`
         // field (the model sample answers), NOT from the API — the API only
         // supplies the band score, pillars & pronunciation tips.
-        const jsonUpgrades: UpgradedExpression[] = topicQuestions.flatMap((q, i) => {
-          const answer = (userAnswers[i] || '').trim();
+        const jsonUpgrades: UpgradedExpression[] = scoredSteps.flatMap(({ step, index }, i) => {
+          const answer = (userAnswers[index] || '').trim();
           if (!answer) return [];
           return [{
             index: i + 1,
             original: answer,
-            upgraded: q.response,
+            upgraded: step.response,
             ieltsBand: 'Band 8+ Model',
             explanation:
               'Model answer sourced directly from the IELTS question bank for this topic. Notice the natural collocations, discourse markers and precise academic register examiners look for at Band 8+.',
@@ -648,7 +726,10 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
             jsonUpgrades.length > 0 ? jsonUpgrades : data.evaluation.upgradedExpressions,
         };
         soundFX.playChime('success');
-        setUsedTopics((prev) => [...prev, currentTopic]);
+        // Every topic of this run is remembered so the next run rotates to new
+        // material (the joined label already lives in `currentTopic`).
+        const scoredTopics = Array.from(new Set(scoredSteps.map(({ step }) => step.topic)));
+        setUsedTopics((prev) => Array.from(new Set([...prev, ...scoredTopics])));
         // This interview run is complete: drop the persisted session so the
         // next time the user enters Interview mode they get a fresh topic
         // instead of resuming a finished question list.
@@ -669,7 +750,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       };
       setMessagesForActiveMode((prev) => [...prev, errorMsg]);
     }
-  }, [onPracticeEvaluationComplete, currentTopic, topicQuestions, userAnswers, userProfile]);
+  }, [onPracticeEvaluationComplete, currentTopic, flowSteps, userAnswers, userProfile]);
 
   // ---- CASUAL CHAT MODE ----
   // The avatar renders with autoSpeak={false} (SerenLiveChat owns all audio to
@@ -934,6 +1015,8 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     setInputText('');
     setAnswerText('');
     setSttNotice('');
+    setShowHint(false);
+    setHintText('');
     setSelectedTopicMode(mode);
     modeRef.current = mode; // immediate — startInterview() checks this ref
 
@@ -953,7 +1036,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
         if (session && session.questions.length > 0) {
           const finished = session.currentQuestionIdx >= session.questions.length;
           setCurrentTopic(session.topic);
-          setTopicQuestions(session.questions);
+          setFlowSteps(session.questions);
           setCurrentQuestionIdx(session.currentQuestionIdx);
           setUserAnswers(session.userAnswers);
           lastAnsweredIdxRef.current = session.lastAnsweredIdx;
@@ -971,7 +1054,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     } else {
       // Back to the friendly chat — history intact, Seren stays available.
       setCurrentTopic(null);
-      setTopicQuestions([]);
+      setFlowSteps([]);
       setUserAnswers({});
       setCurrentQuestionIdx(0);
       setIsInterviewActive(false);
@@ -994,6 +1077,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     const startY = event.clientY;
     const startHeight = scrollArea.getBoundingClientRect().height;
     const minHeight = 180;
+    let resizedLayout: ChatLayout | null = null;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       // Measure the composer on every move: its height changes between typed,
@@ -1001,10 +1085,14 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
       const reservedHeight =
         composer.getBoundingClientRect().height + resizeHandle.getBoundingClientRect().height;
       const nextHeight = Math.max(minHeight, startHeight + moveEvent.clientY - startY);
-      setMessageAreaHeight(nextHeight);
-      setChatWindowHeight(nextHeight + reservedHeight);
+      resizedLayout = {
+        messageAreaHeight: nextHeight,
+        chatWindowHeight: nextHeight + reservedHeight,
+      };
+      setChatLayout(resizedLayout);
     };
     const handleMouseUp = () => {
+      if (resizedLayout) saveChatLayout(resizedLayout);
       document.body.style.removeProperty('cursor');
       document.body.style.removeProperty('user-select');
       window.removeEventListener('mousemove', handleMouseMove);
@@ -1015,6 +1103,27 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Part-0 hint: the identity check is never scored, so the learner may reveal
+  // a model reply. The sample lands in the composer (the prompt box) so it can
+  // be read and even used as-is; hiding it removes exactly what it added.
+  const handleToggleInterviewHint = () => {
+    const sample = (currentStep?.response || '').trim();
+    if (!sample) return;
+    if (!showHint) {
+      const next = answerText.trim() ? `${answerText.trim()}\n\n${sample}` : sample;
+      setHintText(sample);
+      setShowHint(true);
+      updateAnswerText(next);
+      return;
+    }
+    const stripped = answerText.endsWith(hintText)
+      ? answerText.slice(0, answerText.length - hintText.length).trimEnd()
+      : answerText;
+    updateAnswerText(stripped);
+    setHintText('');
+    setShowHint(false);
   };
 
   const isInterviewMode = selectedTopicMode === 'Interview';
@@ -1048,7 +1157,15 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
             <p className="text-[11px] sm:text-xs text-[#6272a4]">
               {isInterviewMode
                 ? currentTopic
-                  ? `Topic: ${currentTopic} — Question ${Math.min(currentQuestionIdx + 1, topicQuestions.length)} of ${topicQuestions.length}`
+                  ? isPart0Step
+                    ? `Part 0 · Introduction (not scored) — Question ${Math.min(
+                        currentQuestionIdx + 1,
+                        part0Count
+                      )} of ${part0Count}`
+                    : `Part 1 · Topics: ${currentTopic} — Question ${Math.min(
+                        currentQuestionIdx - part0Count + 1,
+                        part1Steps.length
+                      )} of ${part1Steps.length}`
                   : 'Starting your interview...'
                 : 'Relaxed conversation, just like a friend'}
             </p>
@@ -1231,6 +1348,11 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                         </span>
                         <span>• {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {msg.edited ? <span className="text-[10px] italic opacity-70">(edited)</span> : null}
+                        {msg.part === 0 ? (
+                          <span className="px-1.5 py-0.5 rounded-full bg-[#ffb86c]/15 border border-[#ffb86c]/40 text-[#ffb86c] text-[10px] font-semibold">
+                            Part 0 · not scored
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -1341,6 +1463,25 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
           {isInterviewMode ? (
             <div className="shrink-0 p-3 sm:p-4 bg-[#21222c] border-t border-[#44475a]">
               <div className="flex items-end gap-2">
+                {/* Part-0 Hint — identity-check answers are never scored, so the
+                    learner can reveal a model reply. Part 1 keeps no hint. */}
+                {isPart0Step && (
+                  <button
+                    id="interview-hint-btn"
+                    type="button"
+                    onClick={handleToggleInterviewHint}
+                    disabled={isEvaluating || isRecording || isTranscribing || !currentStep?.response}
+                    className="p-3 rounded-2xl bg-[#bd93f9]/15 border border-[#bd93f9]/50 text-[#f8f8f2] hover:bg-[#bd93f9]/25 transition-all shrink-0 disabled:opacity-40 disabled:pointer-events-none"
+                    title={
+                      showHint
+                        ? 'Hide the model answer'
+                        : 'Show a model answer (Part 0 is not scored)'
+                    }
+                  >
+                    <Lightbulb className="w-5 h-5 text-[#f1fa8c]" />
+                  </button>
+                )}
+
                 {/* Mic / Stop / Ready button — always visible (disabled until
                     the interview is ready) so users always see the mic action,
                     like in Casual chat. */}
@@ -1392,11 +1533,11 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                   isRecording={isRecording}
                   isTranscribing={isTranscribing}
                   recordingHint="Listening — press stop, then Whisper transcribes your answer"
-                  disabled={isEvaluating || !greetingDone || (!isInterviewActive && topicQuestions.length > 0)}
+                  disabled={isEvaluating || !greetingDone || (!isInterviewActive && flowSteps.length > 0)}
                   placeholder={
                     isEvaluating
                       ? 'Generating your report...'
-                      : !isInterviewActive && topicQuestions.length > 0
+                      : !isInterviewActive && flowSteps.length > 0
                       ? 'Click "Evaluate My English" to see your results...'
                       : 'Type your answer (Enter to send) or use the mic...'
                   }
@@ -1421,7 +1562,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
                 </button>
 
                 {/* Evaluate button (topic done) */}
-                {!isInterviewActive && !isEvaluating && topicQuestions.length > 0 ? (
+                {!isInterviewActive && !isEvaluating && flowSteps.length > 0 ? (
                   <button
                     id="evaluate-btn"
                     type="button"

@@ -15,7 +15,8 @@ export interface UserProfile {
 
 export interface DiagnosticQuestion {
   id: string;
-  part: 1 | 2 | 3;
+  // 0 = the Part 0 identity check (examined like the real test, NEVER scored).
+  part: 0 | 1 | 2 | 3;
   partTitle: string;
   topic: string;
   question: string;
@@ -110,6 +111,9 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   mood?: SerenMood;
+  // Interview mode only: 0 marks a Part-0 (identity check) bubble, which is
+  // shown to the learner but never scored. Absent on legacy/casual messages.
+  part?: number;
   // True once the user has edited the message in the chat bubble (optional,
   // so legacy/history messages simply render without the "(edited)" marker).
   edited?: boolean;
