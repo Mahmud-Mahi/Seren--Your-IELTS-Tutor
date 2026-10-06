@@ -14,3 +14,9 @@ declare module '*.svg' {
   const src: string;
   export default src;
 }
+
+interface Window {
+  serenDesktop?: {
+    getAppInfo?: () => Promise<{ appVersion: string }>;
+  };
+}

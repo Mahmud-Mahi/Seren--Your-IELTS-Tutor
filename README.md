@@ -82,33 +82,39 @@ Two practice modes:
 
 ### 🎤 Cambridge Speaking Test
 
-| Part 1 — Introduction & Lifestyle | Part 2 — Cue Card |
+| Part 0 — Introduction & Identity Check | Part 1 — Introduction & Lifestyle |
 | --- | --- |
-| ![Part 1](public/Preview/seren-p1.png) | ![Part 2](public/Preview/seren-p2.png) |
+| ![Part 0 — identity check](public/Preview/Seren-p0.png) | ![Part 1](public/Preview/Seren-p1.png) |
 
-| Part 3 — Two-Way Discussion | Test Selection |
+| Part 2 — Cue Card | Part 3 — Two-Way Discussion |
 | --- | --- |
-| ![Part 3](public/Preview/seren-p3.png) | ![Test selection](public/Preview/seren-test.png) |
+| ![Part 2](public/Preview/Seren-p2.png) | ![Part 3](public/Preview/Seren-p3.png) |
 
 ### 📊 Score Report
 
-| Overall Evaluation | 4-Pillar Score Cards |
-| --- | --- |
-| ![Score report](public/Preview/seren-report.png) | ![4-Pillar scores](public/Preview/seren-report-2.png) |
-
-| Band 8+ Sentence Upgrades | Phonetic Coaching |
-| --- | --- |
-| ![Sentence upgrades](public/Preview/seren-report-3.png) | ![Phonetic coaching](public/Preview/seren-report-4.png) |
-
-### 📚 Lessons, Chat & Settings
-
-| Personalized Lesson Studio | 1v1 Chat (Interview Mode) |
-| --- | --- |
-| ![Custom lessons](public/Preview/seren-custom-lessons.png) | ![1v1 interview](public/Preview/seren-1v1-interview.png) |
-
-| AI Engine Settings |
+| Evaluation & Report History |
 | --- |
-| ![Settings](public/Preview/setings.png) |
+| ![Score report](public/Preview/Seren-report.png) |
+
+### 📚 Lessons, Chat & Solutions
+
+| Personalized Lesson Studio | 1v1 Chat |
+| --- | --- |
+| ![Custom lessons](public/Preview/Seren-lesson.png) | ![1v1 chat](public/Preview/Seren-1v1.png) |
+
+| Cambridge Solutions · Live with Seren | Your Preferences |
+| --- | --- |
+| ![Cambridge solutions](public/Preview/Seren-solution.png) | ![Preferences](public/Preview/User-pref.png) |
+
+### ⚙️ Settings
+
+| AI Providers | Speech-to-Text Engines |
+| --- | --- |
+| ![AI engine settings](public/Preview/settings-1.png) | ![STT engines](public/Preview/settings-2.png) |
+
+| Voice, Display & Data | Keyboard Shortcuts |
+| --- | --- |
+| ![Voice, display & data](public/Preview/settings-3.png) | ![Keyboard shortcuts](public/Preview/settings-4.png) |
 
 ---
 
@@ -118,8 +124,8 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 | Platform | Installer | How to install |
 |----------|-----------|----------------|
-| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.4.3.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.4.3/Seren-Setup-1.4.3.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
-| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.4.3_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.4.3/seren_1.4.3_amd64.deb) | `sudo apt install ./seren_1.4.3_amd64.deb` |
+| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.5.3.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.3/Seren-Setup-1.5.3.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
+| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.5.3_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.3/seren_1.5.3_amd64.deb) | `sudo apt install ./seren_1.5.3_amd64.deb` |
 | 📦 **All versions** | [Releases](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases) | Full release history, each with notes and checksums |
 
 > 🎙️ Every installer **bundles the offline Whisper speech model** (~280 MB), so the first launch needs no extra download.
@@ -128,34 +134,25 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 ---
 
-## 🆕 What's New in 1.4.3
+## 🆕 What's New in 1.5.3
 
-> 🚀 Everything below is new since **v1.3.1** — the previous published release.
+> 🚀 Everything below is new since **v1.4.3** — the previous published release.
 
 ### ✨ Added & Updated
-- 🎬 **The examiner's full opening** — the Cambridge Test and the 1v1 Interview now both begin with the real **Part 0** introduction & identity check (full name, what to call you, where you're from, how you are). It is **examined, never scored**, and is never sent to the evaluation APIs.
-- 🗣️ **The examiner's real scripted transitions** — the first Part-1 question is prefaced with `Now, in this first part, I'd like to ask you some questions about yourself.`, the cue card carries the real Part-2 instructions, and Part 3 links back to the Part-2 topic — so the two practice modes feel like one continuous test.
-- 🔚 **A proper ending** — the test closes with `Thank you. That is the end of the speaking test.` spoken by Seren before the report is built, with a bounded fallback so a muted or blocked voice engine can never hold the report hostage.
-- 🧭 **Fuller 1v1 interviews** — a Part-1 run now spans **2 topics when the first topic holds 5+ questions and 3 topics when it holds 3-4**, asked sequentially with no topic repeated; every topic used is remembered so the next run rotates to fresh material.
-- 💡 **Part-0 Hint** — because the identity check is never scored, the 1v1 composer offers a Hint button that reveals a natural model reply; Part 1 keeps no hint.
-- 🏷️ **Clear Part badges** — Part-0 bubbles are tagged `Part 0 · not scored` and the Cambridge header reads `Identity check · not scored`, so a learner always knows what is (and isn't) assessed.
-- ✍️ **Editable Cambridge transcripts** — the answer box accepts typed answers as well as Whisper dictation, and **Show Hint** now displays the model answer in its own panel instead of overwriting the transcript.
-- ↕️ **Remembered chat layout** — the 1v1 divider height (message area + chat window) is saved and restored, so your preferred chat size persists between sessions.
-
-### 🐛 Fixed
-- 🧮 **Honest report maths** — Part-0 answers are excluded from word counts, words-per-minute and the questions posted to the evaluation API, so the score reflects only the assessed parts.
-- ⏱️ **Accurate auto-advance notice** — the "time complete" banner now shows the true part number (it could previously read the wrong step).
-- 🔁 **Part-1 transition said once** — the transition is spoken exactly at the Part-0 → Part-1 boundary rather than on every question.
-- 🧹 **Hint state resets** — switching questions or modes clears the Part-0 hint so it never leaks into the next answer.
+- 🎧 **Part 3 plays both topics in sequence** — one click on Play in the Solutions class runs the first Part-3 topic straight into the second, with a single Pause/Resume control over the whole run (no more starting each topic by hand).
+- 🗂️ **Roadmap as an overlay** — the Custom Lessons roadmap panel now floats over the workspace instead of squeezing it, starts collapsed so the drill gets full width, and never reflows the practice columns when you toggle it.
+- ↔️ **Resizable scroll areas** — drag the handle under the Cambridge Solutions list or above the Custom Lesson response column to set their height; your choice is saved and restored next session.
+- 🏷️ **Version in Settings** — the AI Engine Settings header now shows `Version 1.5.3`, read live from the running desktop app (falling back to the bundled package version in the browser).
+- 📸 **Fresh screenshots** — the preview gallery above was re-shot on this release: all four test parts (including the Part-0 identity check), the score report, Solutions, lessons, 1v1 chat, Preferences and every Settings page.
 
 ### 📦 Downloads
-- 🪟 Windows: `Seren-Setup-1.4.3.exe`
-- 🐧 Debian/Ubuntu: `seren_1.4.3_amd64.deb`
+- 🪟 Windows: `Seren-Setup-1.5.3.exe`
+- 🐧 Debian/Ubuntu: `seren_1.5.3_amd64.deb`
 
 ### 🔐 Checksums (SHA-256)
 ```text
-a1538e60390339e1616c6930c451719252066b8cee7eb695cc14b12df77ae153  Seren-Setup-1.4.3.exe
-b899fb9c5a7b56f4d956590f7dd0bfb087375c698c6adc61364230c6815245fa  seren_1.4.3_amd64.deb
+bfffe826302446db6f486fccc2b2e87b77992f63edd770ee8f2bbf9331c26306  Seren-Setup-1.5.3.exe
+a8eb604fe7a8ea254ccc8848543cdfa86cd11fbad0a3701325a511f0047decd7  seren_1.5.3_amd64.deb
 ```
 
 ---
@@ -250,8 +247,8 @@ For an unpacked Linux build, run `./release/linux-unpacked/seren --version` or
 ### Build installers
 
 ```bash
-npm run app:dist      # Linux   → release/seren_1.4.3_amd64.deb
-npm run app:dist:win  # Windows → release/Seren-Setup-1.4.3.exe  (cross-built with wine)
+npm run app:dist      # Linux   → release/seren_1.5.3_amd64.deb
+npm run app:dist:win  # Windows → release/Seren-Setup-1.5.3.exe  (cross-built with wine)
 npm run app:dist:all  # both in one go
 npm run app:inspect   # list what actually got packaged (files, deps, secrets, size)
 npm run app:dist:mac  # macOS .dmg — must be run ON macOS

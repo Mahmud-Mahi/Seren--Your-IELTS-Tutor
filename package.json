@@ -1,7 +1,7 @@
 {
   "name": "seren-ai-ielts-speaking-coach",
   "private": true,
-  "version": "1.4.3",
+  "version": "1.5.3",
   "type": "module",
   "main": "electron/main.cjs",
   "desktopName": "Seren",

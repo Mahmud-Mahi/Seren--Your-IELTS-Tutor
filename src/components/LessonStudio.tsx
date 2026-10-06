@@ -41,6 +41,17 @@ interface LessonStudioProps {
   onMarkLessonComplete: (planId: string, moduleId: string) => void;
 }
 
+const LESSON_SCROLL_HEIGHT_KEY = 'seren_lesson_scroll_height';
+const MIN_LESSON_SCROLL_HEIGHT = 220;
+
+function loadSavedLessonScrollHeight(): number | null {
+  try {
+    const savedHeight = Number(localStorage.getItem(LESSON_SCROLL_HEIGHT_KEY));
+    if (Number.isFinite(savedHeight) && savedHeight >= MIN_LESSON_SCROLL_HEIGHT) return savedHeight;
+  } catch {}
+  return null;
+}
+
 export const LessonStudio: React.FC<LessonStudioProps> = ({
   evaluation,
   userProfile,
@@ -114,13 +125,52 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // 'listening'; the moment it closes the previous base mood returns.
   useMicMoodSync(isRecording);
 
-  // Custom Lessons sidebar (the 4-module roadmap panel): collapsible via the
-  // hamburger toggle in the banner so the practice workspace can go full width.
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // The roadmap floats over the lesson so opening it never changes workspace width.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [scrollAreaHeight, setScrollAreaHeight] = useState<number | null>(loadSavedLessonScrollHeight);
 
   // Keyboard shortcut (customizable in Settings) for the same toggle.
   const sidebarShortcutHint = useShortcutHint('lessons.toggleSidebar');
   useShortcut('lessons.toggleSidebar', () => setSidebarOpen((open) => !open));
+
+  const handleScrollAreaResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const resizeHandle = event.currentTarget;
+    const scrollArea = resizeHandle.previousElementSibling as HTMLElement | null;
+    if (!scrollArea) return;
+
+    const startY = event.clientY;
+    const startHeight = scrollArea.getBoundingClientRect().height;
+    let resizedHeight: number | null = null;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const maxHeight = Math.max(
+        MIN_LESSON_SCROLL_HEIGHT,
+        window.innerHeight - scrollArea.getBoundingClientRect().top - 24
+      );
+      resizedHeight = Math.min(
+        maxHeight,
+        Math.max(MIN_LESSON_SCROLL_HEIGHT, startHeight + moveEvent.clientY - startY)
+      );
+      setScrollAreaHeight(resizedHeight);
+    };
+    const handleMouseUp = () => {
+      if (resizedHeight !== null) {
+        try {
+          localStorage.setItem(LESSON_SCROLL_HEIGHT_KEY, String(resizedHeight));
+        } catch {}
+      }
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   const [conversationHistory, setConversationHistory] = useState<any[]>([]);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
@@ -437,7 +487,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   };
 
   return (
-    <div id="lesson-studio-view" className="w-full max-w-6xl mx-auto space-y-6">
+    <div id="lesson-studio-view" className="relative w-full max-w-6xl mx-auto space-y-6">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#21222c] border border-[#44475a] backdrop-blur-md">
         <div className="flex items-center gap-3">
@@ -478,10 +528,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       </div>
 
       {/* Main Grid: Modules list + Active Drill Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="relative grid grid-cols-1 gap-6">
         {/* Left Side: Module Cards Selector (3 cols when open, hidden when collapsed) */}
         {sidebarOpen && (
-          <div className="lg:col-span-3 space-y-3">
+          <div className="absolute left-0 top-0 z-30 w-[min(22rem,calc(100vw-2rem))] max-h-[calc(100dvh-12rem)] space-y-3 overflow-y-auto overscroll-contain rounded-xl border border-[#6272a4] bg-[#21222c]/95 p-3 shadow-2xl backdrop-blur-md">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6272a4] px-1">
             Your Custom Learning Roadmap
           </h3>
@@ -576,7 +626,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         )}
 
         {/* Right Side: Active Drill & Practice Stage with Seren (full width when panel hidden) */}
-        <div className={`${sidebarOpen ? 'lg:col-span-9' : 'lg:col-span-12'} space-y-5`}>
+        <div className="min-w-0 space-y-5">
           <div className="p-5 sm:p-7 rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md space-y-6">
             {/* Header of Active Module */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-[#44475a]">
@@ -635,7 +685,12 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 </div>
               </div>
 
-              <div className="md:col-span-7 space-y-3">
+              <div className="md:col-span-7 flex min-h-0 min-w-0 flex-col">
+                <ScrollArea
+                  className={`${scrollAreaHeight === null ? 'max-h-[calc(100dvh-19rem)]' : 'max-h-none'} min-h-[220px] pr-2 pb-2`}
+                  style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
+                >
+                <div className="space-y-3">
                 <div className="p-4 rounded-2xl bg-[#21222c] border border-[#bd93f9]/30 text-xs space-y-2">
                   <span className="text-[10px] uppercase font-bold text-[#bd93f9] tracking-wider">
                     Interactive Drill Prompt:
@@ -970,6 +1025,18 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 </div>
               </div>
             )}
+              </div>
+                </ScrollArea>
+                <div
+                  role="separator"
+                  aria-label="Resize Custom Lesson scroll area"
+                  aria-orientation="horizontal"
+                  onMouseDown={handleScrollAreaResizeStart}
+                  className="group flex h-3 shrink-0 cursor-ns-resize items-center justify-center rounded-lg bg-[#282a36] hover:bg-[#44475a]"
+                  title="Drag to resize the Custom Lesson scroll area"
+                >
+                  <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+                </div>
               </div>
             </div>
           </div>

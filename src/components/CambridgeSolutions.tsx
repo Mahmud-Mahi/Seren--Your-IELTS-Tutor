@@ -61,6 +61,17 @@ const PART_DESCRIPTIONS: Record<number, string> = {
   3: 'Abstract discussion — opinions are balanced, supported with reasons and pushed one step further.',
 };
 
+const SOLUTIONS_SCROLL_HEIGHT_KEY = 'seren_solutions_scroll_height';
+const MIN_SOLUTIONS_SCROLL_HEIGHT = 180;
+
+function loadSavedSolutionsScrollHeight(): number | null {
+  try {
+    const savedHeight = Number(localStorage.getItem(SOLUTIONS_SCROLL_HEIGHT_KEY));
+    if (Number.isFinite(savedHeight) && savedHeight >= MIN_SOLUTIONS_SCROLL_HEIGHT) return savedHeight;
+  } catch {}
+  return null;
+}
+
 interface TopicGroup {
   topic: string;
   questions: DiagnosticQuestion[];
@@ -82,6 +93,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   const [currentQIndex, setCurrentQIndex] = useState(-1);
   const [currentSpeaker, setCurrentSpeaker] = useState<'examiner' | 'seren' | null>(null);
   const [finishedTopics, setFinishedTopics] = useState<Record<string, boolean>>({});
+  const [scrollAreaHeight, setScrollAreaHeight] = useState<number | null>(loadSavedSolutionsScrollHeight);
 
   // The playback loop lives in refs so the async session never closes over
   // stale UI state. `genRef` is a run token: bumping it invalidates every
@@ -206,59 +218,69 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // The live Q&A loop for one topic
+  // The live Q&A loop for one topic or a sequence of topics.
   // ---------------------------------------------------------------------------
-  const runSession = async (topicKey: string, questions: DiagnosticQuestion[]) => {
+  const runSession = async (groups: TopicGroup[]) => {
+    if (groups.length === 0) return;
     const gen = ++genRef.current;
-    activeTopicRef.current = topicKey;
     pausedRef.current = false;
 
-    setActiveTopicKey(topicKey);
     setIsPlaying(true);
-    setFinishedTopics((prev) => ({ ...prev, [topicKey]: false }));
     setCurrentQIndex(-1);
     setCurrentSpeaker(null);
     serenVoice.stop();
     soundFX.playChime('start');
 
-    for (let i = 0; i < questions.length; i++) {
-      if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
-      await waitWhilePaused(gen, topicKey);
-      if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
+    for (const group of groups) {
+      const topicKey = topicKeyOf(group.topic);
+      activeTopicRef.current = topicKey;
+      setActiveTopicKey(topicKey);
+      setFinishedTopics((prev) => ({ ...prev, [topicKey]: false }));
+      setCurrentQIndex(-1);
+      setCurrentSpeaker(null);
 
-      const q = questions[i];
+      for (let i = 0; i < group.questions.length; i++) {
+        if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
+        await waitWhilePaused(gen, topicKey);
+        if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
 
-      // 1. The examiner asks the question (male neural voice).
-      setCurrentQIndex(i);
-      setCurrentSpeaker('examiner');
-      await speakTurn(EXAMINER_VOICE, q.question, gen, topicKey);
+        const q = group.questions[i];
+
+        // 1. The examiner asks the question (male neural voice).
+        setCurrentQIndex(i);
+        setCurrentSpeaker('examiner');
+        await speakTurn(EXAMINER_VOICE, q.question, gen, topicKey);
+        if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
+
+        // 2. A little pause, then Seren reads the sample answer from the bank.
+        if (!(await holdGap(TURN_PAUSE_MS, gen, topicKey))) return;
+        setCurrentSpeaker('seren');
+        await speakTurn(
+          undefined,
+          q.sampleAnswer?.trim() || 'Let me gather my thoughts for a moment.',
+          gen,
+          topicKey
+        );
+        if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
+
+        // 3. Breathe, then continue the loop with the next question.
+        if (!(await holdGap(TURN_PAUSE_MS, gen, topicKey))) return;
+      }
+
       if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
-
-      // 2. A little pause, then Seren reads the sample answer from the bank.
-      if (!(await holdGap(TURN_PAUSE_MS, gen, topicKey))) return;
-      setCurrentSpeaker('seren');
-      await speakTurn(
-        undefined,
-        q.sampleAnswer?.trim() || 'Let me gather my thoughts for a moment.',
-        gen,
-        topicKey
-      );
-      if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
-
-      // 3. Breathe, then continue the loop with the next question of the topic.
-      if (!(await holdGap(TURN_PAUSE_MS, gen, topicKey))) return;
+      setFinishedTopics((prev) => ({ ...prev, [topicKey]: true }));
     }
 
-    if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
+    const lastTopicKey = topicKeyOf(groups[groups.length - 1].topic);
+    if (genRef.current !== gen || activeTopicRef.current !== lastTopicKey) return;
     serenVoice.stop();
     activeTopicRef.current = null;
-    setFinishedTopics((prev) => ({ ...prev, [topicKey]: true }));
     resetPlaybackUi();
     soundFX.playChime('success');
   };
 
   const handlePlayPause = (topicKey: string, questions: DiagnosticQuestion[]) => {
-    if (!voiceEnabled || questions.length === 0) return;
+    if (!voiceEnabled) return;
     if (activeTopicRef.current === topicKey) {
       if (pausedRef.current) {
         // Resume
@@ -272,7 +294,18 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       }
       return;
     }
-    void runSession(topicKey, questions);
+    if (questions.length === 0) return;
+    const group = topics.find((item) => topicKeyOf(item.topic) === topicKey);
+    if (group) void runSession([group]);
+  };
+
+  const handlePlayAll = () => {
+    if (!voiceEnabled) return;
+    if (activeTopicRef.current) {
+      handlePlayPause(activeTopicRef.current, []);
+      return;
+    }
+    void runSession(topics);
   };
 
   const handleStop = (topicKey: string) => {
@@ -294,6 +327,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     if (activeKey) {
       const activeGroup = topics.find((group) => topicKeyOf(group.topic) === activeKey);
       if (activeGroup) handlePlayPause(activeKey, activeGroup.questions);
+      return;
+    }
+    if (activePart === 3) {
+      void runSession(topics);
       return;
     }
     const first = topics[0];
@@ -358,6 +395,45 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       : isDone
       ? 'Replay this topic'
       : 'Play this topic — examiner asks, Seren answers live';
+
+  const handleScrollAreaResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const resizeHandle = event.currentTarget;
+    const scrollArea = resizeHandle.previousElementSibling as HTMLElement | null;
+    if (!scrollArea) return;
+
+    const startY = event.clientY;
+    const startHeight = scrollArea.getBoundingClientRect().height;
+    let resizedHeight: number | null = null;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const maxHeight = Math.max(
+        MIN_SOLUTIONS_SCROLL_HEIGHT,
+        window.innerHeight - scrollArea.getBoundingClientRect().top - 24
+      );
+      resizedHeight = Math.min(
+        maxHeight,
+        Math.max(MIN_SOLUTIONS_SCROLL_HEIGHT, startHeight + moveEvent.clientY - startY)
+      );
+      setScrollAreaHeight(resizedHeight);
+    };
+    const handleMouseUp = () => {
+      if (resizedHeight !== null) {
+        try {
+          localStorage.setItem(SOLUTIONS_SCROLL_HEIGHT_KEY, String(resizedHeight));
+        } catch {}
+      }
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   return (
     <div className="w-full max-w-6xl mx-auto flex flex-col flex-1 min-h-0 space-y-3 sm:space-y-4">
@@ -457,7 +533,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
             {/* Scroll area: every topic of this part, with all Q&As at once.
                 Height stretches to match the Seren column on the left so both
                 columns end at the same line and the right column is fully used. */}
-            <ScrollArea className="flex-1 min-h-0 pr-2 pb-4 space-y-5 rounded-2xl">
+            <ScrollArea
+              className={`${scrollAreaHeight === null ? 'flex-1' : 'flex-none max-h-none'} min-h-0 pr-2 pb-4 space-y-5 rounded-2xl`}
+              style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
+            >
               {topics.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-[#44475a] p-8 text-center">
                   <BookOpen className="w-8 h-8 mx-auto text-[#6272a4] mb-2" />
@@ -467,10 +546,12 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                 </div>
               )}
 
-              {topics.map((group) => {
+              {topics.map((group, groupIndex) => {
                 const topicKey = topicKeyOf(group.topic);
                 const isActive = activeTopicKey === topicKey;
                 const isDone = !!finishedTopics[topicKey];
+                const isSequenceControl = activePart === 3;
+                const isPlayControlActive = isSequenceControl ? !!activeTopicKey : isActive;
                 return (
                   <div
                     key={group.topic}
@@ -518,28 +599,56 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                             <CheckCircle className="w-3 h-3" /> Completed
                           </span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handlePlayPause(topicKey, group.questions)}
-                          disabled={!voiceEnabled || group.questions.length === 0}
-                          title={`${playButtonTitle(isActive, isDone)}${
-                            pauseShortcutHint ? ` (${pauseShortcutHint})` : ''
-                          }`}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:pointer-events-none ${
-                            isActive && isPlaying
-                              ? 'bg-[#ffb86c]/15 border border-[#ffb86c]/50 text-[#ffb86c] hover:bg-[#ffb86c]/25'
-                              : 'bg-[#50fa7b]/15 border border-[#50fa7b]/50 text-[#50fa7b] hover:bg-[#50fa7b]/25'
-                          }`}
-                        >
-                          {isActive && isPlaying ? (
-                            <Pause className="w-3.5 h-3.5" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5" />
-                          )}
-                          <span>
-                            {!isActive ? (isDone ? 'Replay' : 'Play') : isPlaying ? 'Pause' : 'Resume'}
-                          </span>
-                        </button>
+                        {(activePart !== 3 || groupIndex === 0) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isSequenceControl
+                                ? handlePlayAll()
+                                : handlePlayPause(topicKey, group.questions)
+                            }
+                            disabled={!voiceEnabled || group.questions.length === 0}
+                            title={`${
+                              isSequenceControl
+                                ? !voiceEnabled
+                                  ? 'Voice is muted — enable audio to play the session'
+                                  : activeTopicKey
+                                  ? isPlaying
+                                    ? 'Pause both topics'
+                                    : 'Resume both topics'
+                                  : 'Play both Part 3 topics in sequence'
+                                : playButtonTitle(isActive, isDone)
+                            }${
+                              pauseShortcutHint ? ` (${pauseShortcutHint})` : ''
+                            }`}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:pointer-events-none ${
+                              isPlayControlActive && isPlaying
+                                ? 'bg-[#ffb86c]/15 border border-[#ffb86c]/50 text-[#ffb86c] hover:bg-[#ffb86c]/25'
+                                : 'bg-[#50fa7b]/15 border border-[#50fa7b]/50 text-[#50fa7b] hover:bg-[#50fa7b]/25'
+                            }`}
+                          >
+                            {isPlayControlActive && isPlaying ? (
+                              <Pause className="w-3.5 h-3.5" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5" />
+                            )}
+                            <span>
+                              {isSequenceControl
+                                ? activeTopicKey
+                                  ? isPlaying
+                                    ? 'Pause'
+                                    : 'Resume'
+                                  : 'Play'
+                                : !isActive
+                                ? isDone
+                                  ? 'Replay'
+                                  : 'Play'
+                                : isPlaying
+                                ? 'Pause'
+                                : 'Resume'}
+                            </span>
+                          </button>
+                        )}
                         {isActive && (
                           <button
                             type="button"
@@ -645,6 +754,16 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
               })}
 
             </ScrollArea>
+            <div
+              role="separator"
+              aria-label="Resize Cambridge Solutions scroll area"
+              aria-orientation="horizontal"
+              onMouseDown={handleScrollAreaResizeStart}
+              className="group flex h-2 shrink-0 cursor-ns-resize items-center justify-center border-y border-[#44475a]/60 bg-[#21222c] hover:bg-[#44475a]"
+              title="Drag to resize the solutions scroll area"
+            >
+              <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+            </div>
 
           </div>
         </div>

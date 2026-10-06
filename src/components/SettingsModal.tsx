@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import packageMetadata from '../../package.json';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -96,6 +97,7 @@ interface SttEngineInfo {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
+  const [appVersion, setAppVersion] = useState(packageMetadata.version);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [pinnedProvider, setPinnedProvider] = useState<string>('auto');
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -270,6 +272,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     setServerTtsOnline(null);
     void serenVoice.checkServerTts().then(setServerTtsOnline);
   }, [open, loadStatus, loadModelLists]);
+
+  useEffect(() => {
+    const getAppInfo = window.serenDesktop?.getAppInfo;
+    if (!open || !getAppInfo) return;
+    let cancelled = false;
+    void getAppInfo()
+      .then(({ appVersion: runningVersion }) => {
+        if (!cancelled && runningVersion) setAppVersion(runningVersion);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // Persist model selections to localStorage
   useEffect(() => {
@@ -536,6 +552,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 <div>
                   <h2 className="text-base font-bold text-[#f8f8f2]">AI Engine Settings</h2>
                   <p className="text-[11px] text-[#6272a4]">Configure Seren's brain &amp; voice — all free, no paid APIs</p>
+                  <p className="text-[10px] text-[#6272a4]/80">Version {appVersion}</p>
                 </div>
               </div>
               <button
