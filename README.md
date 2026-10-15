@@ -124,8 +124,8 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 | Platform | Installer | How to install |
 |----------|-----------|----------------|
-| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.5.3.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.3/Seren-Setup-1.5.3.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
-| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.5.3_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.3/seren_1.5.3_amd64.deb) | `sudo apt install ./seren_1.5.3_amd64.deb` |
+| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.5.5.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.5/Seren-Setup-1.5.5.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
+| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.5.5_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.5/seren_1.5.5_amd64.deb) | `sudo apt install ./seren_1.5.5_amd64.deb` |
 | 📦 **All versions** | [Releases](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases) | Full release history, each with notes and checksums |
 
 > 🎙️ Every installer **bundles the offline Whisper speech model** (~280 MB), so the first launch needs no extra download.
@@ -134,25 +134,24 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 ---
 
-## 🆕 What's New in 1.5.3
+## 🆕 What's New in 1.5.5
 
-> 🚀 Everything below is new since **v1.4.3** — the previous published release.
+> 🚀 Everything below is new since **v1.5.3** — the previous published release.
 
 ### ✨ Added & Updated
-- 🎧 **Part 3 plays both topics in sequence** — one click on Play in the Solutions class runs the first Part-3 topic straight into the second, with a single Pause/Resume control over the whole run (no more starting each topic by hand).
-- 🗂️ **Roadmap as an overlay** — the Custom Lessons roadmap panel now floats over the workspace instead of squeezing it, starts collapsed so the drill gets full width, and never reflows the practice columns when you toggle it.
-- ↔️ **Resizable scroll areas** — drag the handle under the Cambridge Solutions list or above the Custom Lesson response column to set their height; your choice is saved and restored next session.
-- 🏷️ **Version in Settings** — the AI Engine Settings header now shows `Version 1.5.3`, read live from the running desktop app (falling back to the bundled package version in the browser).
-- 📸 **Fresh screenshots** — the preview gallery above was re-shot on this release: all four test parts (including the Part-0 identity check), the score report, Solutions, lessons, 1v1 chat, Preferences and every Settings page.
+- 🎛️ **Practice Stage console** — the Custom Lesson drill now lives in a framed console: an inset shell with a violet accent frame and a live stage header that tells you where you are (drill hint, follow-up counter, or "module complete").
+- 🃏 **Layered feedback cards** — cards inside the console invert their shades (and nested feedback tiles go darker again) so every layer keeps its contrast; the wrap-up summary, reply box, recording overlay and Examiner Advice all follow the new palette.
+- ↔️ **Integrated resize grip** — the Custom Lesson resize handle is now the console's bottom strip; dragging works exactly as before and your chosen height is still remembered.
+- 🔊 **TTS engine update** — msedge-tts upgraded to 2.1.0 for more reliable voice playback.
 
 ### 📦 Downloads
-- 🪟 Windows: `Seren-Setup-1.5.3.exe`
-- 🐧 Debian/Ubuntu: `seren_1.5.3_amd64.deb`
+- 🪟 Windows: `Seren-Setup-1.5.5.exe`
+- 🐧 Debian/Ubuntu: `seren_1.5.5_amd64.deb`
 
 ### 🔐 Checksums (SHA-256)
 ```text
-bfffe826302446db6f486fccc2b2e87b77992f63edd770ee8f2bbf9331c26306  Seren-Setup-1.5.3.exe
-a8eb604fe7a8ea254ccc8848543cdfa86cd11fbad0a3701325a511f0047decd7  seren_1.5.3_amd64.deb
+d570940835a5a1d2e0ef17a8d0550a71ddea682a83a8968f3bf9ba713c2b1b15  Seren-Setup-1.5.5.exe
+90300cacd45fa2cf5ddb85aa43ab3ba075d64bef185dcefb9d9b5edfe1a5d2df  seren_1.5.5_amd64.deb
 ```
 
 ---

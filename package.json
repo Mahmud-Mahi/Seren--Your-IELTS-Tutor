@@ -1,7 +1,7 @@
 {
   "name": "seren-ai-ielts-speaking-coach",
   "private": true,
-  "version": "1.5.3",
+  "version": "1.5.5",
   "type": "module",
   "main": "electron/main.cjs",
   "desktopName": "Seren",
@@ -33,7 +33,7 @@
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
-    "msedge-tts": "^2.0.7",
+    "msedge-tts": "^2.1.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "sherpa-onnx": "^1.13.6"

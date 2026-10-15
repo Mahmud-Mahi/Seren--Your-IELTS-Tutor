@@ -627,7 +627,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
         {/* Right Side: Active Drill & Practice Stage with Seren (full width when panel hidden) */}
         <div className="min-w-0 space-y-5">
-          <div className="p-5 sm:p-7 rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md space-y-6">
+          <div className="p-4 sm:p-5 rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl backdrop-blur-md space-y-6">
             {/* Header of Active Module */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-[#44475a]">
               <div>
@@ -653,9 +653,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
               </div>
             </div>
 
-            {/* Seren Visual Coach Stage in Lesson */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
-              <div className="md:col-span-5">
+            {/* Seren Visual Coach Stage in Lesson — 4/8 split hugs the 340px
+                avatar so there is no dead space between Seren and the console */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+              <div className="md:col-span-4">
                 {/* Width wrapper: keeps the avatar AND the objectives panel at
                     the avatar's native 320/340px width, centered, so the image
                     ratio is untouched and both blocks align in every sidebar
@@ -685,13 +686,33 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 </div>
               </div>
 
-              <div className="md:col-span-7 flex min-h-0 min-w-0 flex-col">
+              <div className="md:col-span-8 flex min-h-0 min-w-0 flex-col">
+                {/* Practice-stage console — the Custom Lesson tab's own framed
+                    identity: an inset #21222c shell with a violet accent frame
+                    and a labeled stage header, so the scroll region reads as one
+                    cohesive workspace instead of loose cards (the 1v1 / Cambridge
+                    / Solutions tabs use flat #282a36 frames). Cards inside invert
+                    to #282a36 so every layer keeps its contrast. */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl sm:rounded-3xl border border-[#bd93f9]/25 bg-[#21222c] shadow-[0_18px_40px_-18px_rgba(0,0,0,0.65)]">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#bd93f9]/20 bg-gradient-to-r from-[#bd93f9]/10 via-transparent to-[#8be9fd]/5 px-4 py-2.5 sm:px-5">
+                    <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#bd93f9]">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Practice Stage
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#6272a4] truncate">
+                      {lessonSummary
+                        ? 'Module complete — review your feedback below'
+                        : feedbackHistory.length > 0
+                          ? `Follow-up ${Math.min(followUpCount, MAX_FOLLOW_UPS)} of ${MAX_FOLLOW_UPS}`
+                          : 'Read the drill prompt, then record your answer'}
+                    </span>
+                  </div>
                 <ScrollArea
-                  className={`${scrollAreaHeight === null ? 'max-h-[calc(100dvh-19rem)]' : 'max-h-none'} min-h-[220px] pr-2 pb-2`}
+                  className={`${scrollAreaHeight === null ? 'max-h-[calc(100dvh-22rem)]' : 'max-h-none'} min-h-[220px] pr-2 pb-2`}
                   style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
                 >
-                <div className="space-y-3">
-                <div className="p-4 rounded-2xl bg-[#21222c] border border-[#bd93f9]/30 text-xs space-y-2">
+                <div className="space-y-3 p-3.5 sm:p-5">
+                <div className="p-4 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-2">
                   <span className="text-[10px] uppercase font-bold text-[#bd93f9] tracking-wider">
                     Interactive Drill Prompt:
                   </span>
@@ -756,10 +777,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   value={userSpokenText}
                   onChange={(e) => handleUserTextChange(e.target.value)}
                   placeholder="Click 'Record Answer' and speak, or type your practice response here..."
-                  className="w-full p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50"
+                  className="w-full p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm leading-relaxed placeholder-[#6272a4] focus:outline-none focus:ring-2 focus:ring-[#bd93f9]/50"
                 />
                     {(isRecording || isTranscribing) && (
-                  <div className="absolute inset-0 rounded-2xl bg-[#21222c]/95 border border-[#44475a] flex items-center justify-center px-4">
+                  <div className="absolute inset-0 rounded-2xl bg-[#282a36]/95 border border-[#44475a] flex items-center justify-center px-4">
                         {isTranscribing ? (
                           <div className="flex items-center gap-2 text-xs text-[#bd93f9]">
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -804,7 +825,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                           "In my perspective, this approach is fundamentally transformative."
                       )
                     }
-                    className="px-3 py-2.5 rounded-xl bg-[#21222c] hover:bg-[#44475a] border border-[#44475a] text-[#f8f8f2] text-xs transition-colors flex items-center gap-1.5"
+                    className="px-3 py-2.5 rounded-xl bg-[#282a36] hover:bg-[#44475a] border border-[#44475a] text-[#f8f8f2] text-xs transition-colors flex items-center gap-1.5"
                   >
                     <Flame className="w-3.5 h-3.5 text-[#ffb86c]" />
                     <span>Try Sample Answer</span>
@@ -832,7 +853,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="p-5 rounded-3xl bg-[#21222c] border border-[#bd93f9]/40 shadow-xl"
+                  className="p-5 rounded-3xl bg-[#282a36] border border-[#bd93f9]/40 shadow-xl"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-xs font-bold text-[#bd93f9] uppercase tracking-wider flex items-center gap-1.5">
@@ -869,7 +890,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
                         {/* Original Answer */}
                         {fb.originalAnswer && (
-                          <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs space-y-1">
+                          <div className="p-3.5 rounded-2xl bg-[#21222c] border border-[#44475a] text-xs space-y-1">
                             <span className="text-[10px] uppercase font-bold text-[#6272a4]">
                               Your Answer:
                             </span>
@@ -881,7 +902,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
                         {/* Upgraded version */}
                         {fb.correctedSentence && (
-                          <div className="p-3.5 rounded-2xl bg-[#282a36] border border-[#bd93f9]/30 text-xs space-y-1">
+                          <div className="p-3.5 rounded-2xl bg-[#21222c] border border-[#bd93f9]/30 text-xs space-y-1">
                             <span className="text-[10px] uppercase font-bold text-[#8be9fd]">
                               Polished Band 8.5 Phrasing:
                             </span>
@@ -912,7 +933,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
                         {/* Examiner Tip */}
                         {fb.ieltsTip && (
-                          <div className="p-3 rounded-2xl bg-[#282a36] border border-[#44475a] text-xs text-[#f8f8f2] flex items-start gap-2">
+                          <div className="p-3 rounded-2xl bg-[#21222c] border border-[#44475a] text-xs text-[#f8f8f2] flex items-start gap-2">
                             <Lightbulb className="w-4 h-4 text-[#f1fa8c] shrink-0 mt-0.5" />
                             <div>
                               <strong className="text-[#f8f8f2]">Examiner Advice: </strong>
@@ -930,7 +951,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
 
             {/* Wrap-up summary — replaces the reply box once the lesson completes */}
             {feedbackHistory.length > 0 && lessonSummary && (
-              <div className="p-4 rounded-2xl bg-[#21222c] border border-[#50fa7b]/40 space-y-3">
+              <div className="p-4 rounded-2xl bg-[#282a36] border border-[#50fa7b]/40 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-[#50fa7b] uppercase tracking-wider flex items-center gap-1.5">
                     <Award className="w-4 h-4" />
@@ -976,7 +997,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                 and Send stays visible but disabled while the input is empty.
                 Hidden once the lesson wraps up (summary card takes over). */}
             {feedbackHistory.length > 0 && !lessonSummary && (
-              <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-3">
+              <div className="p-4 rounded-2xl bg-[#282a36] border border-[#44475a] space-y-3">
                 <span className="text-xs font-semibold text-[#f8f8f2] flex items-center gap-1.5">
                   <Mic className="w-3.5 h-3.5 text-[#8be9fd]" />
                   Reply to Seren:
@@ -985,7 +1006,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   value={userSpokenText}
                   onChange={(e) => handleUserTextChange(e.target.value)}
                   placeholder="Continue the conversation..."
-                  className="w-full p-3.5 rounded-xl bg-[#282a36] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm focus:outline-none focus:border-[#bd93f9]"
+                  className="w-full p-3.5 rounded-xl bg-[#21222c] border border-[#44475a] text-[#f8f8f2] text-xs sm:text-sm focus:outline-none focus:border-[#bd93f9]"
                   rows={3}
                 />
                 <div className="flex items-center gap-2">
@@ -1027,15 +1048,18 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
             )}
               </div>
                 </ScrollArea>
+                {/* Resize grip — integrated as the console's bottom strip so the
+                    frame stays visually closed while the drag behaviour is unchanged */}
                 <div
                   role="separator"
                   aria-label="Resize Custom Lesson scroll area"
                   aria-orientation="horizontal"
                   onMouseDown={handleScrollAreaResizeStart}
-                  className="group flex h-3 shrink-0 cursor-ns-resize items-center justify-center rounded-lg bg-[#282a36] hover:bg-[#44475a]"
+                  className="group flex h-3 shrink-0 cursor-ns-resize items-center justify-center border-t border-[#44475a]/60 bg-[#282a36]/50 hover:bg-[#44475a]"
                   title="Drag to resize the Custom Lesson scroll area"
                 >
                   <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+                </div>
                 </div>
               </div>
             </div>
