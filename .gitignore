@@ -13,5 +13,29 @@ release/
 # Local AI preferences (contains API key)
 seren-settings.json
 
+# One-time data-loss recovery bundle (dropped into the data dir by hand)
+seren-recovery.json
+
+user-data.json
+
 # Whisper STT models (~113MB, downloaded on first run)
 models/
+
+# ---------------------------------------------------------------------------
+# OAuth client credentials — NEVER commit these.
+#
+# The file Google Cloud console downloads for an OAuth client (a "Desktop app"
+# client in particular) contains the client_secret. It is a real credential:
+# anyone holding it can mint tokens as if they were the app. Keep it local and
+# put the values in .env instead.
+# ---------------------------------------------------------------------------
+client_secret_*.json
+*_client_secret*.json
+*.apps.googleusercontent.com.json
+
+# Service-account keys would grant full Admin access to the Firebase project.
+serviceAccount*.json
+service-account*.json
+*-firebase-adminsdk-*.json
+google-services.json
+

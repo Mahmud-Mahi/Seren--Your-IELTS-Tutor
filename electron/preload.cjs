@@ -22,4 +22,13 @@ contextBridge.exposeInMainWorld('serenDesktop', {
   openDataFolder: () => ipcRenderer.invoke('seren:open-data-folder'),
   /** Reveal seren-server.log in the OS file manager (boot-failure page). */
   openLogFile: () => ipcRenderer.invoke('seren:open-log'),
+  /**
+   * Open a URL in the user's real browser.
+   *
+   * Used for the Google consent screen: Google refuses to run its OAuth
+   * consent flow inside an embedded user agent (Electron), so the sign-in has
+   * to happen in the system browser. The redirect comes back to a loopback
+   * listener on this machine, so the flow still completes without a server.
+   */
+  openExternal: (url) => ipcRenderer.invoke('seren:open-external', url),
 });

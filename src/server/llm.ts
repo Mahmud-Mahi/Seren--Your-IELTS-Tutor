@@ -87,6 +87,48 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 }
 export { fetchWithTimeout };
 
+// ---------------------------------------------------------------------------
+// Transient-failure handling.
+//
+// A provider that is momentarily overloaded (HTTP 429/5xx) or whose socket
+// blipped is NOT broken: the previous code cooled the model down for 10
+// minutes on ANY error, which punished healthy providers for a temporary
+// hiccup and made one rate-limited call poison the whole cascade. Transient
+// failures are now retried IN PLACE with exponential backoff and never put a
+// cooldown on the provider; only permanent failures (auth, bad request,
+// unknown model) cool a model down.
+// ---------------------------------------------------------------------------
+
+const TRANSIENT_RETRY_DELAYS_MS = [400, 1200, 3000];
+const MAX_TRANSIENT_RETRIES = TRANSIENT_RETRY_DELAYS_MS.length;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Extract the HTTP status from an LLM error message ("HTTP 503 from …"). */
+export function httpStatusOfError(err: any): number | null {
+  const match = String(err?.message || '').match(/\bHTTP\s+(\d{3})\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * True when the failure is temporary and the SAME request is likely to
+ * succeed if retried shortly (rate limits, upstream 5xx, network resets,
+ * timeouts). Everything else is permanent and must cascade immediately.
+ */
+export function isTransientLLMError(err: any): boolean {
+  const status = httpStatusOfError(err);
+  if (status != null) {
+    return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+  }
+  const message = String(err?.message || err || '').toLowerCase();
+  if (!message) return false;
+  return (
+    /timed? ?out|timeout|etimedout|econnreset|econnrefused|eai_again|epipe|socket hang up|fetch failed|network|aborted|empty completion/.test(
+      message
+    )
+  );
+}
+
 // Ranked candidate cache per provider ('auto' mode discovers many models)
 const providerCandidatesCache: Map<string, { models: string[]; at: number }> = new Map();
 // Sticky preference: the last model that actually answered on each provider
@@ -265,36 +307,62 @@ export async function callLLM(opts: CallLLMOptions): Promise<{ text: string; pro
         headers['Authorization'] = `Bearer ${provider.apiKey}`;
       }
 
-      // Two attempts per model: the second drops response_format in case the backend rejects it
+      // Two attempts per model: the second drops response_format in case the backend rejects it.
+      // TRANSIENT failures (429/5xx/network/timeout) are retried IN PLACE with
+      // exponential backoff and never cool the model down — only permanent
+      // failures do, so a rate-limited provider stays usable for the next call.
       for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetchWithTimeout(
-            `${provider.baseUrl}/chat/completions`,
-            { method: 'POST', headers, body: JSON.stringify(body) },
-            provider.timeoutMs
-          );
+        let transientRetries = 0;
+        let modelFailed = false;
+        for (;;) {
+          try {
+            const res = await fetchWithTimeout(
+              `${provider.baseUrl}/chat/completions`,
+              { method: 'POST', headers, body: JSON.stringify(body) },
+              provider.timeoutMs
+            );
 
-          if (!res.ok) {
-            const errText = await res.text().catch(() => '');
-            if (attempt === 0 && body.response_format && (res.status === 400 || res.status === 422)) {
-              delete body.response_format;
-              continue;
+            if (!res.ok) {
+              const errText = await res.text().catch(() => '');
+              if (attempt === 0 && body.response_format && (res.status === 400 || res.status === 422)) {
+                delete body.response_format;
+                break; // retry the same model WITHOUT response_format
+              }
+              throw new Error(`HTTP ${res.status} from ${provider.key}/${model}: ${errText.slice(0, 200)}`);
             }
-            throw new Error(`HTTP ${res.status} from ${provider.key}/${model}: ${errText.slice(0, 200)}`);
+
+            const json: any = await res.json();
+            const text: string = json?.choices?.[0]?.message?.content || '';
+            if (!text.trim()) throw new Error(`Empty completion from ${provider.key}/${model}`);
+
+            lastGoodModel.set(provider.key, model);
+            return { text: text.trim(), provider: provider.key, model };
+          } catch (err: any) {
+            lastError = err;
+            const transient = isTransientLLMError(err);
+            if (transient && transientRetries < MAX_TRANSIENT_RETRIES) {
+              const delay = TRANSIENT_RETRY_DELAYS_MS[transientRetries];
+              transientRetries++;
+              console.warn(
+                `[LLM] Transient failure on '${provider.key}'/'${model}' (${err?.message || err}) — retrying in ${delay}ms (${transientRetries}/${MAX_TRANSIENT_RETRIES})`
+              );
+              await sleep(delay);
+              continue; // retry the SAME model/provider
+            }
+            console.warn(`[LLM] Provider '${provider.key}' model '${model}' failed:`, err?.message || err);
+            // Only a PERMANENT failure earns a cooldown. A transient failure
+            // says nothing about the model's health, so the provider keeps its
+            // place in the cascade for the very next request.
+            if (!transient) {
+              modelCooldowns.set(cooldownKey, Date.now() + MODEL_COOLDOWN_MS);
+            }
+            modelFailed = true;
+            break; // move to next candidate model
           }
-
-          const json: any = await res.json();
-          const text: string = json?.choices?.[0]?.message?.content || '';
-          if (!text.trim()) throw new Error(`Empty completion from ${provider.key}/${model}`);
-
-          lastGoodModel.set(provider.key, model);
-          return { text: text.trim(), provider: provider.key, model };
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[LLM] Provider '${provider.key}' model '${model}' failed:`, err?.message || err);
-          modelCooldowns.set(cooldownKey, Date.now() + MODEL_COOLDOWN_MS);
-          break; // move to next candidate model
         }
+        // The model is exhausted (permanent failure or retries spent) —
+        // never re-enter the format-fallback attempt for the same model.
+        if (modelFailed) break;
       }
     }
   }

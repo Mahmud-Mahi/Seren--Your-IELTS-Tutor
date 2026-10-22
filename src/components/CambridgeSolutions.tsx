@@ -492,7 +492,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
       {/* Main grid: Seren stage + the part's scroll area */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch flex-1 min-h-0">
         {/* Seren stage (4 cols) — height-capped to match the Q&A session */}
-        <div className="lg:col-span-4 flex flex-col min-h-0 lg:max-h-[calc(100dvh-9rem)]">
+        <div className="lg:col-span-4 flex flex-col min-h-0">
           {/* Seren avatar section */}
           <div className="shrink-0">
             <SerenAvatar
@@ -529,14 +529,15 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         </div>
 
           {/* Right column (8 cols) — the Q&A session fills the page height */}
-          <div className="lg:col-span-8 flex flex-col min-h-0 min-w-0 lg:max-h-[calc(100dvh-9rem)]">
+          <div className="lg:col-span-8 flex flex-col min-h-0 min-w-0">
             {/* Scroll area: every topic of this part, with all Q&As at once.
                 Height stretches to match the Seren column on the left so both
                 columns end at the same line and the right column is fully used. */}
-            <ScrollArea
-              className={`${scrollAreaHeight === null ? 'flex-1' : 'flex-none max-h-none'} min-h-0 pr-2 pb-4 space-y-5 rounded-2xl`}
-              style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
-            >
+            <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-[#44475a] bg-[#21222c]/70 overflow-hidden">
+              <ScrollArea
+                className={`${scrollAreaHeight === null ? 'flex-1' : 'flex-none max-h-none'} min-h-0 pr-2 space-y-5`}
+                style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
+              >
               {topics.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-[#44475a] p-8 text-center">
                   <BookOpen className="w-8 h-8 mx-auto text-[#6272a4] mb-2" />
@@ -753,16 +754,18 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
                 );
               })}
 
-            </ScrollArea>
-            <div
-              role="separator"
-              aria-label="Resize Cambridge Solutions scroll area"
-              aria-orientation="horizontal"
-              onMouseDown={handleScrollAreaResizeStart}
-              className="group flex h-2 shrink-0 cursor-ns-resize items-center justify-center border-y border-[#44475a]/60 bg-[#21222c] hover:bg-[#44475a]"
-              title="Drag to resize the solutions scroll area"
-            >
-              <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+              </ScrollArea>
+
+              <div
+                role="separator"
+                aria-label="Resize Cambridge Solutions scroll area"
+                aria-orientation="horizontal"
+                onMouseDown={handleScrollAreaResizeStart}
+                className="group flex h-3 shrink-0 cursor-ns-resize items-center justify-center border-t border-[#44475a]/60 bg-[#282a36]/50 hover:bg-[#44475a]"
+                title="Drag to resize the solutions scroll area"
+              >
+                <span className="h-0.5 w-10 rounded-full bg-[#6272a4] transition-colors group-hover:bg-[#bd93f9]" />
+              </div>
             </div>
 
           </div>

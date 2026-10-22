@@ -31,6 +31,10 @@ interface EvaluationReportProps {
   onToggleVoice: () => void;
   onNavigateToLessons: () => void;
   onRetakeTest: () => void;
+  // Rebuild ONLY the lesson roadmap from the answers already on record.
+  onRegenerateLessons?: () => Promise<boolean>;
+  isRegeneratingLessons?: boolean;
+  lessonRegenError?: string | null;
 }
 
 export const EvaluationReport: React.FC<EvaluationReportProps> = ({
@@ -43,6 +47,9 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
   onToggleVoice,
   onNavigateToLessons,
   onRetakeTest,
+  onRegenerateLessons,
+  isRegeneratingLessons = false,
+  lessonRegenError = null,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'pillars' | 'upgrades' | 'pronunciation'>('overview');
   const [playingAudioKey, setPlayingAudioKey] = useState<string | null>(null);
@@ -81,6 +88,18 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
   // Render-safe accessors: a normalized evaluation always has these, but a
   // malformed one must degrade gracefully instead of blanking the page
   const bandScore = Number(evaluation.predictedIeltsBand ?? 0);
+  const lessonCount = Array.isArray(evaluation.lessonRoadmap)
+    ? evaluation.lessonRoadmap.length
+    : 0;
+  // The server states explicitly what went wrong so the learner is never
+  // left staring at an empty panel wondering if it is their fault.
+  const degradation = evaluation.degradation;
+  const showDegradationBanner =
+    !!degradation &&
+    (degradation.usedFallback ||
+      degradation.lessonsFailed ||
+      degradation.lessonsPartial ||
+      degradation.pronunciationEmpty);
 
   // Compact, locale-aware date for the history list (e.g. "1 Jan 2026")
   const formatDate = (ts: number) => {
@@ -277,6 +296,57 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
         </div>
       )}
 
+      {/* Degradation banner — the report says exactly what is missing and
+          offers the cheapest way to fix it. */}
+      {showDegradationBanner && degradation && (
+        <div className="p-4 rounded-2xl bg-[#ffb86c]/10 border border-[#ffb86c]/40 space-y-2.5">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4.5 h-4.5 text-[#ffb86c] shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-[#f8f8f2]">
+                {degradation.usedFallback
+                  ? 'Provisional report — the AI engine was unavailable'
+                  : 'This report is partially degraded'}
+              </p>
+              {degradation.notes.length > 0 && (
+                <ul className="mt-1.5 space-y-1">
+                  {degradation.notes.slice(0, 4).map((note, i) => (
+                    <li key={i} className="text-xs text-[#f8f8f2]/80 leading-relaxed">
+                      • {note}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {lessonRegenError && (
+                <p className="text-xs text-[#ff5555] mt-1.5">{lessonRegenError}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                {onRegenerateLessons && (
+                  <button
+                    id="report-regen-lessons-btn"
+                    type="button"
+                    disabled={isRegeneratingLessons}
+                    onClick={() => void onRegenerateLessons()}
+                    className="px-3 py-1.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-60 text-[#282a36] font-bold text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingLessons ? 'animate-spin' : ''}`} />
+                    <span>{isRegeneratingLessons ? 'Building…' : 'Rebuild my lessons'}</span>
+                  </button>
+                )}
+                <button
+                  id="report-retake-btn"
+                  type="button"
+                  onClick={onRetakeTest}
+                  className="px-3 py-1.5 rounded-xl border border-[#44475a] bg-[#282a36] hover:bg-[#44475a] text-[#f8f8f2] text-xs font-medium transition-colors"
+                >
+                  Retake the diagnostic
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-[#21222c] border border-[#44475a] backdrop-blur-md overflow-x-auto">
         <button
@@ -384,19 +454,47 @@ export const EvaluationReport: React.FC<EvaluationReportProps> = ({
               ))}
             </div>
 
-            {/* Roadmap Teaser */}
-            <div className="p-6 rounded-3xl bg-[#282a36] border border-[#bd93f9]/40 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="space-y-1 text-center sm:text-left">
-                <h3 className="text-base font-bold text-[#f8f8f2] flex items-center justify-center sm:justify-start gap-2">
-                  <Layers className="w-4 h-4 text-[#8be9fd]" />
-                  Your 4-Stage Personalized Lessons are Ready!
-                </h3>
-                <p className="text-xs text-[#6272a4]">
-                  Seren generated dynamic interactive drills targeting your exact errors to reach Band {userProfile.targetBand}.
-                </p>
+            {/* Roadmap Teaser — degradation aware: the learner must know when
+                the lessons are missing or only partially built. */}
+            {lessonCount === 0 ? (
+              <div className="p-6 rounded-3xl bg-[#282a36] border border-[#ffb86c]/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="space-y-1 text-center sm:text-left">
+                  <h3 className="text-base font-bold text-[#f8f8f2] flex items-center justify-center sm:justify-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-[#ffb86c]" />
+                    No lesson modules for this attempt
+                  </h3>
+                  <p className="text-xs text-[#6272a4]">
+                    {evaluation.degradation?.lessonsFailed
+                      ? "Seren couldn't build your personalized drills this time. Your score above is real — you can rebuild the lessons from the same answers."
+                      : 'Seren found no teachable errors in this attempt, so no drills were generated.'}
+                  </p>
+                </div>
+                {onRegenerateLessons && (
+                  <button
+                    id="regen-lessons-report-btn"
+                    type="button"
+                    disabled={isRegeneratingLessons}
+                    onClick={() => void onRegenerateLessons()}
+                    className="px-4 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-60 text-[#282a36] font-bold text-xs flex items-center gap-1.5 transition-colors shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingLessons ? 'animate-spin' : ''}`} />
+                    <span>{isRegeneratingLessons ? 'Building…' : 'Build my lessons'}</span>
+                  </button>
+                )}
               </div>
-
-            </div>
+            ) : (
+              <div className="p-6 rounded-3xl bg-[#282a36] border border-[#bd93f9]/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="space-y-1 text-center sm:text-left">
+                  <h3 className="text-base font-bold text-[#f8f8f2] flex items-center justify-center sm:justify-start gap-2">
+                    <Layers className="w-4 h-4 text-[#8be9fd]" />
+                    Your {lessonCount}-Stage Personalized Lessons are Ready!
+                  </h3>
+                  <p className="text-xs text-[#6272a4]">
+                    Seren generated dynamic interactive drills targeting your exact errors to reach Band {userProfile.targetBand}.
+                  </p>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 

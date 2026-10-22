@@ -14,9 +14,12 @@ import {
   Volume2,
   FileText,
   X,
-  Loader2
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { DiagnosticQuestion, UserProfile, SpeakingEvaluation } from '../types';
+import { loadCambridgeSession, saveCambridgeSession, clearCambridgeSession } from '../autosave';
 import { CAMBRIDGE_TESTS, getCambridgeTestById } from '../data/cambridgeTests';
 import { asCambridgeQuestions, isScoredPart } from '../data/part0Intro';
 import { SerenAvatar } from './SerenAvatar';
@@ -24,6 +27,122 @@ import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../ut
 import { MicEqualizer } from './MicEqualizer';
 import confetti from 'canvas-confetti';
 import { cambridgeGreetingIntro, cambridgeGreetingPrompt, cambridgeGreeting, cambridgeQuestionOpener, cambridgeQuestionClosing, examInterviewClosing } from '../utils/greetings';
+
+/**
+ * A provisional report used ONLY when the learner explicitly chooses to
+ * continue after a failed analysis. It is never presented as a real result:
+ * the caller marks it with a `degradation` block so the Report tab shows
+ * that the AI engine was unavailable.
+ */
+const buildProvisionalEvaluation = (
+  nickname: string,
+  targetBand: string,
+  totalWords: number,
+  estimatedWPM: number
+): any => ({
+  overallCEFR: 'B2' as const,
+  predictedIeltsBand: 6.5,
+  cefrDescriptor: 'Independent Speaker with Strong Fluency Foundations',
+  executiveSummary: `Splendid job, ${nickname}! You demonstrated clear communication, genuine enthusiasm, and spontaneous speech. To reach your target Band ${targetBand}, we will work on enriching your academic vocabulary and structuring fluent Part 2 long turns without hesitation.`,
+  pillars: {
+    fluency: {
+      score: 6.5,
+      cefr: 'B2' as const,
+      strengths: ['Smooth speech flow on familiar topics', 'Appropriate pacing without excessive long pauses'],
+      growthAreas: ['Incorporate discourse markers (furthermore, in retrospect)', 'Avoid repetitive connectors like "and then"'],
+      examinerCommentary: 'Good continuous speech! Pacing drills will give you effortless fluidity.',
+    },
+    lexical: {
+      score: 6.5,
+      cefr: 'B2' as const,
+      strengths: ['Accurate vocabulary for topic concepts', 'Good use of descriptive words'],
+      growthAreas: ['Replace generic verbs and adjectives with Band 8+ collocations', 'Express abstract concepts with more nuance'],
+      examinerCommentary: 'Strong core vocabulary. We will expand your idiomatic toolkit.',
+    },
+    grammar: {
+      score: 6.0,
+      cefr: 'B2' as const,
+      strengths: ['Accurate simple and compound sentences', 'Good control of basic tenses'],
+      growthAreas: ['Use mixed conditionals and inversion structures', 'Maintain subject-verb agreement during rapid speech'],
+      examinerCommentary: 'Solid grammar foundation with minor slips under pressure.',
+    },
+    pronunciation: {
+      score: 7.0,
+      cefr: 'B2' as const,
+      strengths: ['Clear enunciation and audible projection', 'Natural sentence intonation'],
+      growthAreas: ['Focus on word stress in multi-syllable academic words', 'Connected speech linking'],
+      examinerCommentary: 'Your pronunciation is pleasant and very easy to follow!',
+    },
+  },
+  upgradedExpressions: [
+    {
+      original: "I like living in my hometown because it has good things.",
+      upgraded: "What I find most compelling about my hometown is its vibrant blend of cultural heritage and modern amenities.",
+      ieltsBand: "Band 8.5",
+      explanation: "Replaces generic 'like' and 'good things' with high-scoring lexical items and cleft structure.",
+    },
+    {
+      original: "I want to achieve this goal since many years.",
+      upgraded: "This ambition has been a longstanding aspiration of mine ever since my formative years.",
+      ieltsBand: "Band 8.0",
+      explanation: "Accurate present perfect continuous sense with academic collocations.",
+    },
+  ],
+  pronunciationTips: [
+    {
+      word: "Heritage",
+      ipa: "/ˈherɪtɪdʒ/",
+      phoneticSpelling: "HER-ih-tij",
+      tip: "Stress the first syllable firmly: 'HER'.",
+      exampleSentence: "The town has rich architectural heritage.",
+    },
+    {
+      word: "Aspiration",
+      ipa: "/ˌæspəˈreɪʃən/",
+      phoneticSpelling: "as-puh-RAY-shun",
+      tip: "Primary stress lands on 'RAY'.",
+      exampleSentence: "Achieving fluency is my prime aspiration.",
+    },
+  ],
+  stats: {
+    totalWords: totalWords || 130,
+    estimatedWPM: estimatedWPM || 110,
+    pauseFluencyRating: 'Smooth' as const,
+    varietyRating: 'Good' as const,
+  },
+  lessonRoadmap: [
+    {
+      id: 'module-1',
+      title: 'Band 8+ Cohesion & Linking Mastery',
+      level: 'Band 7.5+',
+      category: 'Fluency' as const,
+      duration: '15 Mins',
+      description: 'Learn seamless transitions like "Having said that" and "From an empirical standpoint".',
+      objectives: ['Eliminate awkward hesitation', 'Master 10 linking structures'],
+      practiceDrill: {
+        type: 'rapid_fire' as const,
+        prompt: 'Answer: "Do people prefer cities or countryside?" using two contrast connectors.',
+        modelBand9Sample: 'Broadly speaking, there is a pronounced generational divide. Whereas youth favor vibrant hubs, older adults seek serenity.',
+        tips: ['Use "Broadly speaking"', 'Contrast with "Whereas"'],
+      },
+    },
+    {
+      id: 'module-2',
+      title: 'IELTS Part 2: The 3-Act Cue Card Blueprint',
+      level: 'Band 8.0+',
+      category: 'Part 2 Cue Card' as const,
+      duration: '20 Mins',
+      description: 'Structure any cue card into Setup, Conflict/Details, and Reflection so you speak comfortably for 2 minutes.',
+      objectives: ['Utilize 1-minute prep window', 'Deliver an impactful conclusion'],
+      practiceDrill: {
+        type: 'cue_card' as const,
+        prompt: 'Describe an unforgettable adventure.',
+        modelBand9Sample: 'If I were to recount one particularly vivid expedition, it would be our trek across the northern highlands.',
+        tips: ['Frame with "If I were to recount..."'],
+      },
+    },
+  ],
+});
 
 interface CambridgeTestProps {
   userProfile: UserProfile;
@@ -50,13 +169,14 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   onToggleVoice,
   onEvaluationComplete,
 }) => {
-  const [selectedTestId, setSelectedTestId] = useState<string>('');
+  const [selectedTestId, setSelectedTestId] = useState<string>(() => {
+    const session = loadCambridgeSession();
+    return session && getCambridgeTestById(session.selectedTestId) ? session.selectedTestId : '';
+  });
   const [currentIdx, setCurrentIdx] = useState<number>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('seren_cambridge_progress') || '{}');
-      const idx = Number(saved.idx);
-      if (Number.isInteger(idx) && idx >= 0) return idx;
-    } catch {}
+    const session = loadCambridgeSession();
+    const idx = Number(session?.idx);
+    if (Number.isInteger(idx) && idx >= 0) return idx;
     return 0;
   });
   const [showHint, setShowHint] = useState(false);
@@ -71,23 +191,32 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   // the minute burns down while the student is still listening to the intro.
   const [prepGate, setPrepGate] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, string>>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('seren_diag_progress') || '{}');
-      return {
-        'diag-part-1': saved.transcripts?.['diag-part-1'] || '',
-        'diag-part-2': saved.transcripts?.['diag-part-2'] || '',
-        'diag-part-3': saved.transcripts?.['diag-part-3'] || '',
-      };
-    } catch {
-      return { 'diag-part-1': '', 'diag-part-2': '', 'diag-part-3': '' };
-    }
+    const session = loadCambridgeSession();
+    const t = session?.transcripts;
+    return {
+      ...t,
+      'diag-part-1': t?.['diag-part-1'] || '',
+      'diag-part-2': t?.['diag-part-2'] || '',
+      'diag-part-3': t?.['diag-part-3'] || '',
+    };
   });
-  const [cueNotes, setCueNotes] = useState('');
+  const [cueNotes, setCueNotes] = useState(() => loadCambridgeSession()?.cueNotes || '');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzingStage, setAnalyzingStage] = useState('');
   const [autoAdvanceNotice, setAutoAdvanceNotice] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  // A failed evaluation must NOT destroy the recorded answers: the session
+  // stays alive so the learner can retry the analysis with their ORIGINAL
+  // answers instead of re-recording the whole test.
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
+  const [isRetryingEvaluation, setIsRetryingEvaluation] = useState(false);
+  // The word/WPM stats of the LAST submitted attempt — needed to build the
+  // provisional report if the learner chooses to continue after a failure.
+  const [lastAttemptStats, setLastAttemptStats] = useState<{
+    totalWords: number;
+    estimatedWPM: number;
+  }>({ totalWords: 0, estimatedWPM: 0 });
   const selectedTest = selectedTestId ? getCambridgeTestById(selectedTestId) ?? null : null;
   // The FULL flow: the examiner's Part-0 introduction (identity check) followed
   // by this test's own Part 1-3 questions, which stay completely untouched.
@@ -102,15 +231,12 @@ export const CambridgeTest: React.FC<CambridgeTestProps> = ({
   const currentQ: DiagnosticQuestion = questions[currentIdx] || questions[0] || DIAGNOSTIC_FALLBACK_QUESTION;
   const currentTranscript = transcripts[currentQ.id] || '';
 
-  // Persist diagnostic progress so a closed app resumes at the same part
+  // Persist the test session (test + question index + answers + Part-2 notes)
+  // on EVERY change so a closed app resumes at the exact point left. Removed
+  // only on explicit cancel (start over) or after the test is submitted.
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        'seren_cambridge_progress',
-        JSON.stringify({ selectedTestId, idx: currentIdx, transcripts })
-      );
-    } catch {}
-  }, [selectedTestId, currentIdx, transcripts]);
+    saveCambridgeSession({ selectedTestId, idx: currentIdx, transcripts, cueNotes });
+  }, [selectedTestId, currentIdx, transcripts, cueNotes]);
   // Guards the TTS→mic auto-start so it fires once per recording transition.
   const recordingTransitionRef = useRef({ id: '', started: false });
   // Mirror of isRecording readable inside async callbacks without stale closures
@@ -623,10 +749,7 @@ useEffect(() => {
     serenVoice.stop();
     void activeAudioRecorder.stop().catch(() => {});
     transcribedPartsRef.current.clear();
-    try {
-      localStorage.removeItem('seren_cambridge_progress');
-      localStorage.removeItem('seren_diag_progress');
-    } catch {}
+    clearCambridgeSession();
     setTranscripts({});
     setCurrentIdx(0);
     setShowHint(false);
@@ -643,7 +766,7 @@ useEffect(() => {
     soundFX.playChime('tick');
   };
 
-  const submitDiagnosticEvaluation = async () => {
+  const submitDiagnosticEvaluation = async (retry: boolean = false) => {
     // Never fabricate a score for silence: if essentially nothing was spoken
     // (or typed) across all three parts, refuse to evaluate. This also stops
     // mic-noise Whisper hallucinations from unlocking a Band 7.5 report.
@@ -668,6 +791,8 @@ useEffect(() => {
 
     stopRecording();
     setIsAnalyzing(true);
+    setEvaluationError(null);
+    if (retry) setIsRetryingEvaluation(true);
     soundFX.playChime('start');
 
     // Wait (bounded) for any in-flight/queued Whisper transcription so the
@@ -730,6 +855,7 @@ useEffect(() => {
         estimatedWPM,
       },
     };
+    setLastAttemptStats({ totalWords, estimatedWPM });
 
     try {
       const res = await fetch('/api/evaluate-speech', {
@@ -750,134 +876,35 @@ useEffect(() => {
             origin: { y: 0.6 },
           });
         } catch (e) {}
-        // Test finished — clear the resume checkpoint
-        try {
-          localStorage.removeItem('seren_diag_progress');
-        } catch {}
+        // Test finished — clear the resume checkpoint (both the legacy and
+        // the autosave records) so the next open starts fresh.
+        clearCambridgeSession();
+        setEvaluationError(null);
+        setIsRetryingEvaluation(false);
         // Stamp the Cambridge test metadata so the Score Report + history always
         // know exactly which test this evaluation belongs to.
         onEvaluationComplete({
           ...data.evaluation,
+          degradation: data.evaluation.degradation || data.degradation || undefined,
           ...(selectedTest ? { testId: selectedTest.id, testLabel: selectedTest.label } : {}),
         });
       } else {
         throw new Error(data.error || 'Evaluation failed');
       }
-    } catch (err) {
-      console.error('Submission failed, using fallback:', err);
+    } catch (err: any) {
+      console.error('Evaluation request failed:', err);
       clearInterval(stageInterval);
-      // Even if network fails, construct evaluation so user proceeds seamlessly
-      const fallback = {
-        overallCEFR: 'B2' as const,
-        predictedIeltsBand: 6.5,
-        cefrDescriptor: 'Independent Speaker with Strong Fluency Foundations',
-        executiveSummary: `Splendid job, ${userProfile.nickname}! You demonstrated clear communication, genuine enthusiasm, and spontaneous speech. To reach your target Band ${userProfile.targetBand}, we will work on enriching your academic vocabulary and structuring fluent Part 2 long turns without hesitation.`,
-        pillars: {
-          fluency: {
-            score: 6.5,
-            cefr: 'B2' as const,
-            strengths: ['Smooth speech flow on familiar topics', 'Appropriate pacing without excessive long pauses'],
-            growthAreas: ['Incorporate discourse markers (furthermore, in retrospect)', 'Avoid repetitive connectors like "and then"'],
-            examinerCommentary: 'Good continuous speech! Pacing drills will give you effortless fluidity.',
-          },
-          lexical: {
-            score: 6.5,
-            cefr: 'B2' as const,
-            strengths: ['Accurate vocabulary for topic concepts', 'Good use of descriptive words'],
-            growthAreas: ['Replace generic verbs and adjectives with Band 8+ collocations', 'Express abstract concepts with more nuance'],
-            examinerCommentary: 'Strong core vocabulary. We will expand your idiomatic toolkit.',
-          },
-          grammar: {
-            score: 6.0,
-            cefr: 'B2' as const,
-            strengths: ['Accurate simple and compound sentences', 'Good control of basic tenses'],
-            growthAreas: ['Use mixed conditionals and inversion structures', 'Maintain subject-verb agreement during rapid speech'],
-            examinerCommentary: 'Solid grammar foundation with minor slips under pressure.',
-          },
-          pronunciation: {
-            score: 7.0,
-            cefr: 'B2' as const,
-            strengths: ['Clear enunciation and audible projection', 'Natural sentence intonation'],
-            growthAreas: ['Focus on word stress in multi-syllable academic words', 'Connected speech linking'],
-            examinerCommentary: 'Your pronunciation is pleasant and very easy to follow!',
-          },
-        },
-        upgradedExpressions: [
-          {
-            original: "I like living in my hometown because it has good things.",
-            upgraded: "What I find most compelling about my hometown is its vibrant blend of cultural heritage and modern amenities.",
-            ieltsBand: "Band 8.5",
-            explanation: "Replaces generic 'like' and 'good things' with high-scoring lexical items and cleft structure.",
-          },
-          {
-            original: "I want to achieve this goal since many years.",
-            upgraded: "This ambition has been a longstanding aspiration of mine ever since my formative years.",
-            ieltsBand: "Band 8.0",
-            explanation: "Accurate present perfect continuous sense with academic collocations.",
-          },
-        ],
-        pronunciationTips: [
-          {
-            word: "Heritage",
-            ipa: "/ˈherɪtɪdʒ/",
-            phoneticSpelling: "HER-ih-tij",
-            tip: "Stress the first syllable firmly: 'HER'.",
-            exampleSentence: "The town has rich architectural heritage.",
-          },
-          {
-            word: "Aspiration",
-            ipa: "/ˌæspəˈreɪʃən/",
-            phoneticSpelling: "as-puh-RAY-shun",
-            tip: "Primary stress lands on 'RAY'.",
-            exampleSentence: "Achieving fluency is my prime aspiration.",
-          },
-        ],
-        stats: {
-          totalWords: totalWords || 130,
-          estimatedWPM: estimatedWPM || 110,
-          pauseFluencyRating: 'Smooth' as const,
-          varietyRating: 'Good' as const,
-        },
-        lessonRoadmap: [
-          {
-            id: 'module-1',
-            title: 'Band 8+ Cohesion & Linking Mastery',
-            level: 'Band 7.5+',
-            category: 'Fluency' as const,
-            duration: '15 Mins',
-            description: 'Learn seamless transitions like "Having said that" and "From an empirical standpoint".',
-            objectives: ['Eliminate awkward hesitation', 'Master 10 linking structures'],
-            practiceDrill: {
-              type: 'rapid_fire' as const,
-              prompt: 'Answer: "Do people prefer cities or countryside?" using two contrast connectors.',
-              modelBand9Sample: 'Broadly speaking, there is a pronounced generational divide. Whereas youth favor vibrant hubs, older adults seek serenity.',
-              tips: ['Use "Broadly speaking"', 'Contrast with "Whereas"'],
-            },
-          },
-          {
-            id: 'module-2',
-            title: 'IELTS Part 2: The 3-Act Cue Card Blueprint',
-            level: 'Band 8.0+',
-            category: 'Part 2 Cue Card' as const,
-            duration: '20 Mins',
-            description: 'Structure any cue card into Setup, Conflict/Details, and Reflection so you speak comfortably for 2 minutes.',
-            objectives: ['Utilize 1-minute prep window', 'Deliver an impactful conclusion'],
-            practiceDrill: {
-              type: 'cue_card' as const,
-              prompt: 'Describe an unforgettable adventure.',
-              modelBand9Sample: 'If I were to recount one particularly vivid expedition, it would be our trek across the northern highlands.',
-              tips: ['Frame with "If I were to recount..."'],
-            },
-          },
-        ],
-      };
-      try {
-        localStorage.removeItem('seren_diag_progress');
-      } catch {}
-      onEvaluationComplete({
-        ...(fallback as any),
-        ...(selectedTest ? { testId: selectedTest.id, testLabel: selectedTest.label } : {}),
-      });
+      // A failed evaluation must NOT wipe the recorded answers. The session
+      // stays alive so the learner can RETRY the analysis with their original
+      // answers instead of re-recording the whole test, and the previous
+      // valid report on the Score Report tab is left untouched.
+      setIsAnalyzing(false);
+      setIsRetryingEvaluation(false);
+      setEvaluationError(
+        err?.message
+          ? `Seren couldn't finish the analysis: ${err.message}`
+          : "Seren couldn't finish the analysis — your answers are still saved."
+      );
     }
   };
 
@@ -1002,11 +1029,73 @@ useEffect(() => {
               <div className="p-4 rounded-2xl bg-[#bd93f9]/10 border border-[#bd93f9]/50 flex items-start gap-3">
                 <Loader2 className="w-5 h-5 text-[#bd93f9] animate-spin shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-[#f8f8f2]">Generating your CEFR &amp; IELTS report…</p>
+                  <p className="text-sm font-bold text-[#f8f8f2]">
+                    {isRetryingEvaluation ? 'Retrying your analysis…' : 'Generating your CEFR & IELTS report…'}
+                  </p>
                   <p className="text-xs text-[#6272a4] mt-0.5">{analyzingStage || 'Evaluating every sentence and scanning pronunciation risks…'}</p>
                   <div className="mt-2.5 h-1.5 rounded-full bg-[#44475a] overflow-hidden">
                     <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-[#bd93f9] to-[#8be9fd] animate-pulse" />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Evaluation failed — the recorded answers are still saved, so the
+                learner can retry the analysis instead of re-recording. */}
+            {evaluationError && !isAnalyzing && (
+              <div className="p-4 rounded-2xl bg-[#ff5555]/10 border border-[#ff5555]/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-[#ff5555] shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-[#f8f8f2]">Analysis didn&apos;t finish</p>
+                    <p className="text-xs text-[#f8f8f2]/80 mt-0.5 leading-relaxed">{evaluationError}</p>
+                    <p className="text-xs text-[#6272a4] mt-1">Your answers are still saved — you can retry without speaking again.</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    id="retry-evaluation-btn"
+                    type="button"
+                    onClick={() => void submitDiagnosticEvaluation(true)}
+                    disabled={isRetryingEvaluation}
+                    className="px-3.5 py-2 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-60 text-[#282a36] font-bold text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    {isRetryingEvaluation ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>Retry analysis</span>
+                  </button>
+                  <button
+                    id="continue-provisional-btn"
+                    type="button"
+                    onClick={() => {
+                      // Opt-in only: the provisional report is explicitly marked
+                      // as degraded so it is never mistaken for a real result.
+                      clearCambridgeSession();
+                      onEvaluationComplete({
+                        ...(buildProvisionalEvaluation(
+                          userProfile.nickname,
+                          userProfile.targetBand,
+                          lastAttemptStats.totalWords,
+                          lastAttemptStats.estimatedWPM
+                        ) as any),
+                        degradation: {
+                          lessonsFailed: false,
+                          lessonsPartial: false,
+                          pronunciationEmpty: false,
+                          usedFallback: true,
+                          notes: ['The AI engine was unavailable, so this is a provisional report — retry the analysis for your real result.'],
+                          retryable: true,
+                        },
+                        ...(selectedTest ? { testId: selectedTest.id, testLabel: selectedTest.label } : {}),
+                      });
+                    }}
+                    className="px-3.5 py-2 rounded-xl border border-[#44475a] bg-[#282a36] hover:bg-[#44475a] text-[#f8f8f2] text-xs font-medium transition-colors"
+                  >
+                    Continue with a provisional report
+                  </button>
                 </div>
               </div>
             )}

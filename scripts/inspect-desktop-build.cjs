@@ -52,14 +52,61 @@ const FORBIDDEN_MODULES = [
 /** Harmless if present (transitive extras), but worth knowing about. */
 const NOTEWORTHY_MODULES = ['tailwindcss', '@tailwindcss', '@types'];
 
-/** Local state / secrets that must never end up inside an installer. */
+/** Local state / secrets that must never end up inside an installer.
+ *
+ * NOTE — `.env` is deliberately NOT in this list: the runtime `.env` now ships
+ * inside the app on purpose (see the "files" rules in electron-builder.yml) so
+ * a fresh install authenticates out of the box. It carries the Firebase web
+ * config (public by design) and the desktop OAuth client id/secret (a public
+ * client per RFC 8252 §8.4 — the secret ships inside every install anyway).
+ * It must NEVER contain a paid provider key (Groq, AssemblyAI) — see
+ * `checkShippedEnv` below, which fails the build if one is present. */
 const FORBIDDEN_PATHS = [
-  '.env',
   'seren-settings.json',
   'models',
   path.join('dist', 'Preview'),
   path.join('node_modules', '.cache'),
 ];
+
+/**
+ * Keys that must never be baked into a public installer: they are paid,
+ * personal credentials whose cost (or quota) the author would pay for.
+ */
+const FORBIDDEN_ENV_KEYS = ['GROQ_API_KEY', 'LLM_API_KEY', 'ASSEMBLYAI_API_KEY'];
+
+/**
+ * The shipped `.env` must not contain a live paid-provider key.
+ *
+ * The Firebase web config and the OAuth desktop client id/secret are allowed
+ * (public by design / public client). A Groq or AssemblyAI key is not: it
+ * would be extractable from the published installer and billable to whoever
+ * uses it. Runs against every unpacked app directory.
+ */
+function checkShippedEnv(appDir) {
+  const envPath = path.join(appDir, '.env');
+  if (!exists(envPath)) {
+    warn('.env not present — the app will ask for a provider key on first run');
+    return 0;
+  }
+  let problems = 0;
+  let text = '';
+  try {
+    text = fs.readFileSync(envPath, 'utf8');
+  } catch {
+    return 0;
+  }
+  for (const key of FORBIDDEN_ENV_KEYS) {
+    // Only a line that actually ASSIGNS a value counts — a commented-out
+    // `#GROQ_API_KEY=` is a template line, not a leaked credential.
+    const match = text.match(new RegExp(`^\\s*${key}\\s*=\\s*(\\S.*)$`, 'm'));
+    if (match && match[1].trim()) {
+      bad(`LEAKED ${key} in the shipped .env — it would be extractable from the installer`);
+      problems += 1;
+    }
+  }
+  if (problems === 0) ok('shipped .env carries no paid provider key');
+  return problems;
+}
 
 const exists = (target) => fs.existsSync(target);
 const ok = (label) => console.log(`  \u2713 ${label}`);
@@ -149,6 +196,9 @@ function inspect(appDir) {
       problems += 1;
     }
   }
+
+  console.log('\nShipped .env (public config only)');
+  problems += checkShippedEnv(appDir);
 
   const launch = fs.existsSync(path.join(appDir, '..', '..', 'seren'))
     ? path.relative(ROOT, path.join(appDir, '..', '..', 'seren'))

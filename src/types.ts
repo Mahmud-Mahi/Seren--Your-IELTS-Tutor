@@ -54,6 +54,38 @@ export interface PronunciationTip {
   part?: number;
 }
 
+/**
+ * One real mistake the examiner flagged, quoting the learner verbatim.
+ * Kept on the evaluation so the lessons can be regenerated later without
+ * re-running the whole test.
+ */
+export interface PriorityError {
+  category: string;
+  quote: string;
+  whyWrong: string;
+  fix: string;
+}
+
+/**
+ * How degraded a generated report is. The server never silently swallows a
+ * failed enrichment pass: it says WHICH part is missing so the client can
+ * offer a retry instead of showing an empty panel.
+ */
+export interface DegradationState {
+  /** The lesson roadmap could not be generated at all (provider/parse failure). */
+  lessonsFailed: boolean;
+  /** Some lesson modules were repaired or dropped to keep the rest usable. */
+  lessonsPartial: boolean;
+  /** The pronunciation scan produced nothing. */
+  pronunciationEmpty: boolean;
+  /** The whole evaluation fell back to a deterministic (non-LLM) result. */
+  usedFallback: boolean;
+  /** Human-readable details for the UI / logs. */
+  notes: string[];
+  /** True when re-running the same request could plausibly succeed. */
+  retryable: boolean;
+}
+
 export interface LessonRoadmapModule {
   id: string;
   title: string;
@@ -68,9 +100,17 @@ export interface LessonRoadmapModule {
   focusArea?: string;
   // One real sentence the student actually said that shows the error being fixed.
   exampleError?: string;
+  // Why the example is wrong - the grammar/usage rule in 1-2 sentences. Stamped
+  // by the dedicated lesson call; backfilled server-side when the model omits it.
+  errorAnalysis?: string;
+  // The corrected version of exampleError.
+  correction?: string;
   practiceDrill: {
     type: 'rapid_fire' | 'cue_card' | 'lexical_boost' | 'shadowing' | 'mock_exam';
     prompt: string;
+    // "Fix this sentence" exercises built from the learner's OWN faulty
+    // sentences (verbatim quotes) - the core of every lesson drill.
+    exerciseItems?: { faulty: string; correction: string; note?: string }[];
     modelBand9Sample: string;
     tips: string[];
   };
@@ -103,6 +143,11 @@ export interface SpeakingEvaluation {
     varietyRating: 'High' | 'Good' | 'Repetitive';
   };
   lessonRoadmap: LessonRoadmapModule[];
+  // The examiner's verbatim mistakes — the grounding material for lessons.
+  priorityErrors?: PriorityError[];
+  // Set when part of the report could not be generated normally (see
+  // DegradationState). Absent for a clean, fully-LLM-generated report.
+  degradation?: DegradationState;
 }
 
 export interface ChatMessage {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, Check, ImagePlus, Target, User, X } from 'lucide-react';
+import { Award, Check, Cloud, ImagePlus, LogOut, Mail, Target, User, X } from 'lucide-react';
 import { UserProfile } from '../types';
 import { USER_AVATAR_IMAGE } from '../assets/characterAssets';
 
@@ -7,6 +7,11 @@ interface UserPrefProps {
   profile: UserProfile;
   onSave: (profile: UserProfile) => void;
   onClose: () => void;
+  /** Signed-in account email — shown in the popup per the account section. */
+  accountEmail?: string | null;
+  /** True when running without a cloud account (offline mode). */
+  accountOffline?: boolean;
+  onSignOut?: () => void;
 }
 
 const bands = ['6.5', '7.0', '7.5', '8.0', '8.5+'];
@@ -25,7 +30,14 @@ const focusOptions = [
   'Part 3 Abstract Arguments',
 ];
 
-export const UserPref: React.FC<UserPrefProps> = ({ profile, onSave, onClose }) => {
+export const UserPref: React.FC<UserPrefProps> = ({
+  profile,
+  accountEmail,
+  accountOffline,
+  onSignOut,
+  onSave,
+  onClose,
+}) => {
   const [nickname, setNickname] = useState(profile.nickname);
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || '');
   const [targetAudience, setTargetAudience] = useState(profile.targetAudience);
@@ -89,6 +101,40 @@ export const UserPref: React.FC<UserPrefProps> = ({ profile, onSave, onClose }) 
         </div>
 
         <div className="p-3.5 space-y-3.5">
+          {(accountEmail || accountOffline) && (
+            <div className="p-2.5 rounded-xl bg-[#21222c] border border-[#44475a] space-y-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Mail className="w-3.5 h-3.5 text-[#50fa7b] shrink-0" />
+                <span className="text-[11px] font-semibold text-[#f8f8f2] truncate" title={accountEmail || 'Offline mode'}>
+                  {accountEmail || 'Offline mode — this device only'}
+                </span>
+              </div>
+              <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                {accountOffline
+                  ? 'Running without a cloud account — progress is saved on this device only.'
+                  : 'All progress on this device is saved to this account — pick it up anywhere by logging in.'}
+              </p>
+              <div className="flex items-start gap-1.5 text-[10px] text-[#6272a4] leading-relaxed">
+                <Cloud className="w-3.5 h-3.5 shrink-0 text-[#8be9fd] mt-px" />
+                <span className="min-w-0 break-all">
+                  {accountOffline
+                    ? 'Sign in with Google to sync this device with your other computers.'
+                    : 'Synced to your Google account — sign in on any device to pick up where you left off.'}
+                </span>
+              </div>
+              {onSignOut && (
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border border-[#ff5555]/50 bg-[#ff5555]/10 text-[11px] font-bold text-[#ff5555] hover:bg-[#ff5555]/20 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Log out
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#ff79c6]/60 bg-[#21222c] shrink-0">
               <img src={avatarUrl || USER_AVATAR_IMAGE} alt={nickname || 'Your profile'} className="w-full h-full object-cover" />

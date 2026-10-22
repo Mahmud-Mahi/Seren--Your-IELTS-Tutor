@@ -80,6 +80,12 @@ Two practice modes:
 
 ## 📸 Preview
 
+### 🔐 Sign in
+
+| Continue with Google | Email & Password |
+| --- | --- |
+| ![Sign in with Google](public/Preview/Seren-sign-in.png) | ![Sign in with email](public/Preview/Seren-sign-in-email.png) |
+
 ### 🎤 Cambridge Speaking Test
 
 | Part 0 — Introduction & Identity Check | Part 1 — Introduction & Lifestyle |
@@ -92,9 +98,9 @@ Two practice modes:
 
 ### 📊 Score Report
 
-| Evaluation & Report History |
-| --- |
-| ![Score report](public/Preview/Seren-report.png) |
+| Evaluation | Report History |
+| --- | --- |
+| ![Score report](public/Preview/Seren-report.png) | ![Report history](public/Preview/Seren-report-2.png) |
 
 ### 📚 Lessons, Chat & Solutions
 
@@ -124,8 +130,8 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 | Platform | Installer | How to install |
 |----------|-----------|----------------|
-| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.5.5.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.5/Seren-Setup-1.5.5.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
-| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.5.5_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.5.5/seren_1.5.5_amd64.deb) | `sudo apt install ./seren_1.5.5_amd64.deb` |
+| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.7.9.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.7.9/Seren-Setup-1.7.9.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
+| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.7.9_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.7.9/seren_1.7.9_amd64.deb) | `sudo apt install ./seren_1.7.9_amd64.deb` |
 | 📦 **All versions** | [Releases](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases) | Full release history, each with notes and checksums |
 
 > 🎙️ Every installer **bundles the offline Whisper speech model** (~280 MB), so the first launch needs no extra download.
@@ -134,24 +140,40 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 ---
 
-## 🆕 What's New in 1.5.5
+## 🆕 What's New in 1.7.9
 
-> 🚀 Everything below is new since **v1.5.3** — the previous published release.
+> 🚀 Everything below is new since **v1.5.5** — the previous published release.
 
-### ✨ Added & Updated
-- 🎛️ **Practice Stage console** — the Custom Lesson drill now lives in a framed console: an inset shell with a violet accent frame and a live stage header that tells you where you are (drill hint, follow-up counter, or "module complete").
-- 🃏 **Layered feedback cards** — cards inside the console invert their shades (and nested feedback tiles go darker again) so every layer keeps its contrast; the wrap-up summary, reply box, recording overlay and Examiner Advice all follow the new palette.
-- ↔️ **Integrated resize grip** — the Custom Lesson resize handle is now the console's bottom strip; dragging works exactly as before and your chosen height is still remembered.
-- 🔊 **TTS engine update** — msedge-tts upgraded to 2.1.0 for more reliable voice playback.
+### ✨ Added
+
+- 🔐 **Google Sign-In & cloud sync** — sign in with your Google account (or email & password) and every lesson, report, transcript and draft follows you to any computer. The consent screen opens in your *real* browser and the exchange happens entirely on your own machine via a loopback listener with PKCE — no server of yours is involved. Firestore Security Rules keep every learner's data private. See [`docs/FIREBASE-SETUP.md`](docs/FIREBASE-SETUP.md).
+- 🧭 **Account gate on first run** — a dedicated sign-in screen (Google + email & password, with password reset) replaces the old local account system. Without a Firebase project the app still runs in **offline mode** and says so.
+- 🔄 **Cross-device sync engine** — every `seren_*` write is mirrored to the cloud in the background (debounced, last-write-wins) and hydrated *before* the app mounts, so a lesson started on your laptop can be finished on your phone. Chat threads are **unioned** rather than overwritten, so two devices no longer erase each other's conversations.
+- ☁️ **Visible sync status** — a cloud indicator in the header and a banner when an upload fails. A failed sync is never silent.
+- 🛠️ **"Rebuild my lessons"** — if the lesson pass of a report degrades (rate limit, provider hiccup), you can regenerate **only** the roadmap from your recorded answers — no need to retake the whole test.
+- 🧩 **Grounded lesson modules** — every module now quotes your *own* faulty sentence, explains the rule, gives the corrected version, and ships "fix this sentence" exercises built from what you actually said.
+- 💾 **Autosave & resume** — the Custom Lesson drill, Cambridge session, solutions progress and chat drafts are saved continuously. Close the app mid-drill and you continue exactly where you stopped, tick marks included.
+- 🔤 **Resume greetings** — coming back to a lesson now gets a proper "Welcome back" from Seren instead of a mute avatar with an empty bubble.
+
+### 🐛 Fixed
+
+- 🔊 **TTS reliability** — Edge TTS connections are now pooled and reused per voice (was a fresh WebSocket, DNS lookup and TLS handshake on *every* utterance, ~1.5 s of dead air each time), and the IPv6 "Happy Eyeballs" race that caused random `ETIMEDOUT` failures is fixed by letting the resolver pick a single address. Measured 0/10 failures, down from 2/10.
+- 🔁 **Provider cascade no longer poisons itself** — a transient 429/5xx/network blip is retried in place with exponential backoff instead of cooling a healthy provider down for 10 minutes, so one rate-limited call no longer breaks the whole cascade.
+- 📉 **A failed run no longer destroys your report** — a degraded (fallback) evaluation is still shown, but it no longer overwrites the real report you earned.
+- 🧱 **One bad module no longer throws away three good ones** — lesson-roadmap validation is now per-module: valid modules survive, broken ones are repaired, and only ungroundable ones are dropped (and reported).
+- 🎭 **No more fabricated lesson feedback** — if the LLM call fails mid-lesson, Seren re-asks the drill question instead of falling back to the generic chat script and rendering it as a real evaluation.
+- 🔤 **"hi" no longer matches "which"** — the greeting trigger uses a word-boundary match, so it stopped greeting you in the middle of a real answer.
+- 💬 **Chat history survives two devices** — a thread is merged, not replaced, using the newest *message* timestamp rather than the timestamp of the storage key.
+- 🧹 **Lower AI cost per test** — the pronunciation scan is now **one** call for the whole test instead of one per answer with up to 3 retries (up to 36 calls reduced to 1), and the whole evaluation costs roughly 8 calls instead of dozens.
 
 ### 📦 Downloads
-- 🪟 Windows: `Seren-Setup-1.5.5.exe`
-- 🐧 Debian/Ubuntu: `seren_1.5.5_amd64.deb`
+- 🪟 Windows: `Seren-Setup-1.7.9.exe`
+- 🐧 Debian/Ubuntu: `seren_1.7.9_amd64.deb`
 
 ### 🔐 Checksums (SHA-256)
 ```text
-d570940835a5a1d2e0ef17a8d0550a71ddea682a83a8968f3bf9ba713c2b1b15  Seren-Setup-1.5.5.exe
-90300cacd45fa2cf5ddb85aa43ab3ba075d64bef185dcefb9d9b5edfe1a5d2df  seren_1.5.5_amd64.deb
+ad0408014406f176b4e5a541bb6587b7ed1fd26bb6b34889fed562a737b6e490  Seren-Setup-1.7.9.exe
+6a969c70a16a362f3a86b1a3f3af70d8bfa40f3e5d7b070a84210c75269f84b0  seren_1.7.9_amd64.deb
 ```
 
 ---
@@ -222,6 +244,83 @@ LLM_API_KEY=none
 
 ---
 
+## ☁️ Cloud Sync & Google Sign-In
+
+Seren signs you in with your **Google account**, and every lesson, report,
+transcript and draft is saved against it — so a lesson started on your laptop
+can be finished on your phone.
+
+| | |
+|---|---|
+| **Setup guide** | [`docs/FIREBASE-SETUP.md`](docs/FIREBASE-SETUP.md) |
+| **Cost** | Free — [Firebase Spark plan](https://firebase.google.com/pricing), no credit card |
+| **What you must configure** | Your own Firebase project (~10 minutes, one time) |
+| **What your users must configure** | **Nothing.** Sign-in works out of the box |
+
+Data is written to the account **as you work** (offline-first): the local copy
+is saved instantly and mirrored to the cloud in the background, so a dropped
+connection never costs you a lesson.
+
+> **No Firebase project? Seren still works.** Without cloud sync configured it
+> runs in offline mode — everything stays on the device, and the sign-in
+> screen says so.
+
+### How the sign-in works
+
+Google refuses to show its OAuth consent screen inside an embedded user agent
+(Electron), so Seren opens it in your **real browser** and listens on
+`localhost` for the redirect. The whole exchange happens on your own machine —
+no server of yours is involved, and no password is ever handled by Seren.
+
+Firebase Auth owns the session (including refresh and revocation), and
+Firestore Security Rules (`firestore.rules`) are what actually keep each
+learner's data private:
+
+```
+match /users/{userId}/{document=**} {
+  allow read, write: if request.auth != null && request.auth.uid == userId;
+}
+```
+
+---
+
+## 🔐 Security
+
+### What is public, and what actually protects your data
+
+| Value | Public? | Why it is safe (or not) |
+|---|---|---|
+| Firebase **web** config (`apiKey`, `projectId`, `appId`) | ✅ Public by design | It ships inside every Firebase web app in the world. It only *identifies* the project — it cannot grant IAM roles, deploy rules, or reach the Admin API. Access is decided by **Firestore Security Rules**, not by hiding the key. |
+| OAuth **desktop** client id / secret | ✅ Effectively public | A desktop app is a **public client** (RFC 8252 §8.4) — the secret ships inside every install of the app, so it "should not be treated as confidential". PKCE is what actually protects the flow. |
+| **Firestore Security Rules** | 🔒 The real boundary | One rule locks every learner into their own `users/{uid}/**` folder. Even a signed-in attacker cannot read or write anyone else's data. |
+| **Service-account key** (`*-firebase-adminsdk-*.json`) | 🔒 **Never commit** | This one *would* grant full Admin access to the whole project. It is gitignored and must never be shared. |
+| **Paid provider keys** (`GROQ_API_KEY`, `ASSEMBLYAI_API_KEY`) | 🔒 **Never commit or ship** | A key in the repo (or baked into a published installer) would be billable to whoever uses it. `npm run app:inspect` fails the build if one leaks into a packaged app. |
+
+### Verified against the live project
+
+The published config was tested directly — with **only** the API key, an attacker gets:
+
+| Attempt | Result |
+|---|---|
+| List every Firestore document | `403 PERMISSION_DENIED` |
+| Read another learner's document | `403 PERMISSION_DENIED` |
+| List all user accounts (Admin API) | blocked |
+| Read the project configuration | blocked |
+
+Signing in does not widen this: a signed-in token still only reaches its own folder.
+
+### Protecting your own project
+
+If you fork Seren and point it at your own Firebase project:
+
+1. **Never commit a service-account key.** `.gitignore` already blocks the common names.
+2. **Keep `client_secret_*.json` local.** It is now gitignored as well — put the values in `.env` instead.
+3. **Deploy the rules.** `firebase deploy --only firestore:rules` — an undeployed ruleset is the one state where data is exposed.
+4. **Rotate a leaked secret.** If a service-account key or the OAuth secret is ever committed, rotate it in the Google Cloud console — deleting the commit is not enough.
+5. **Consider App Check** for extra protection against automated abuse of the public API key.
+
+---
+
 ## 🖥️ Desktop App
 
 Seren also runs as a **standalone desktop app** — its own window and launcher icon, no terminal and no browser tab. Electron is only a *shell*: it boots the exact same Express backend (`dist/server.cjs`) on **Electron's built-in Node runtime**, so no system Node.js is needed at runtime, then opens the UI at `http://127.0.0.1:<port>`.
@@ -246,8 +345,8 @@ For an unpacked Linux build, run `./release/linux-unpacked/seren --version` or
 ### Build installers
 
 ```bash
-npm run app:dist      # Linux   → release/seren_1.5.3_amd64.deb
-npm run app:dist:win  # Windows → release/Seren-Setup-1.5.3.exe  (cross-built with wine)
+npm run app:dist      # Linux   → release/seren_<version>_amd64.deb
+npm run app:dist:win  # Windows → release/Seren-Setup-<version>.exe  (cross-built with wine)
 npm run app:dist:all  # both in one go
 npm run app:inspect   # list what actually got packaged (files, deps, secrets, size)
 npm run app:dist:mac  # macOS .dmg — must be run ON macOS
@@ -384,6 +483,7 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 ```
 ├── src/
 │   ├── components/          # React UI components
+│   │   ├── AccountGate.tsx        # Sign-in screen (Google + email)
 │   │   ├── CambridgeTest.tsx     # Cambridge IELTS test flow
 │   │   ├── CambridgeSolutions.tsx # Model answers & "what to notice"
 │   │   ├── EvaluationReport.tsx  # Score report with tabs
@@ -392,6 +492,12 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 │   │   ├── UserPref.tsx          # Profile & coaching preferences
 │   │   ├── SettingsModal.tsx     # Provider, voice & data config
 │   │   └── ...
+│   ├── auth/                # Firebase session + cross-device sync engine
+│   │   ├── session.ts       # Sign-in, sign-out, password reset
+│   │   ├── sync.ts          # Storage interceptor, debounce, merge
+│   │   └── cloud-sync.ts    # Firestore read/write transport
+│   ├── autosave/            # Per-feature autosave (lessons, solutions, drafts)
+│   ├── firebase/            # Firebase client singletons + config
 │   ├── utils/
 │   │   ├── speech.ts        # TTS, STT, sound effects
 │   │   ├── evaluation.ts    # LLM response normalization
@@ -406,6 +512,9 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 ├── electron/                # Desktop shell (main.cjs, preload.cjs, splash)
 ├── public/                  # Static assets & PWA manifest
 ├── assets/                  # IELTS test data (JSON)
+├── docs/                    # Firebase setup guide
+├── firestore.rules          # Per-user data isolation rules
+├── firebase.json            # Firebase hosting + rules config
 └── .env.example             # Environment template
 ```
 

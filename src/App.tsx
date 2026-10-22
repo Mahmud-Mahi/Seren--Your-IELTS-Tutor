@@ -1,8 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CloudOff, RefreshCw } from 'lucide-react';
 import { UserProfile, SpeakingEvaluation, SavedReport, SavedLessonPlan } from './types';
 import { Header } from './components/Header';
 import { OnboardingModal } from './components/OnboardingModal';
 import { UserPref } from './components/UserPref';
+import { AccountGate } from './components/AccountGate';
+import {
+  setSyncSession,
+  hydrate,
+  fetchRecoverySnapshot,
+  getSyncStatus,
+  subscribeSyncStatus,
+  syncNow,
+  type SyncStatus,
+} from './auth/sync';
+import { onSessionChange, isLocalOnlySession, signOut, type AuthSession } from './auth/session';
 import { CambridgeTest } from './components/CambridgeTest';
 import { EvaluationReport } from './components/EvaluationReport';
 import { LessonStudio } from './components/LessonStudio';
@@ -19,7 +31,13 @@ import {
   markLessonComplete,
 } from './utils/lessonHistory';
 
-export default function App() {
+interface SerenAppProps {
+  session: AuthSession;
+  onSignOut: () => void;
+  lastSyncAt: number | null;
+}
+
+const SerenApp: React.FC<SerenAppProps> = ({ session, onSignOut }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem('seren_user_profile');
@@ -39,6 +57,12 @@ export default function App() {
       return null;
     }
   });
+
+  // The most recent evaluation that came from a REAL analysis (not a
+  // degraded/fallback one). A failed attempt must never destroy the report
+  // the learner already earned, so the persisted copy keeps pointing at this
+  // one until a genuine result replaces it.
+  const lastValidEvaluationRef = useRef<SpeakingEvaluation | null>(null);
 
   // Score Report history: every completed Cambridge test / practice session is
   // kept so the user can jump back into any old report (seren_eval_history).
@@ -76,6 +100,19 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!userProfile);
   const [showProfileEditor, setShowProfileEditor] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  // Cloud-sync state. A failed upload MUST be visible: the learner needs to
+  // know their progress is not reaching the cloud (and why).
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => getSyncStatus());
+  const [syncBusy, setSyncBusy] = useState(false);
+  useEffect(() => subscribeSyncStatus(setSyncStatus), []);
+  const handleSyncNow = async () => {
+    setSyncBusy(true);
+    try {
+      await syncNow();
+    } finally {
+      setSyncBusy(false);
+    }
+  };
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
   // Sync state to localStorage
@@ -86,9 +123,28 @@ export default function App() {
   }, [userProfile]);
 
   useEffect(() => {
-    if (evaluation) {
-      localStorage.setItem('seren_user_eval', JSON.stringify(evaluation));
+    if (!evaluation) return;
+    // A degraded/fallback report (the AI engine was unavailable) must not
+    // overwrite the last REAL report on disk — otherwise a transient outage
+    // would permanently replace the learner's earned result with a
+    // placeholder. The degraded report is still shown in the UI and kept in
+    // the history, but the persisted "current" evaluation stays valid.
+    const isDegraded = !!evaluation.degradation?.usedFallback;
+    if (isDegraded) {
+      if (lastValidEvaluationRef.current) {
+        try {
+          localStorage.setItem(
+            'seren_user_eval',
+            JSON.stringify(lastValidEvaluationRef.current)
+          );
+        } catch {}
+      }
+      return;
     }
+    lastValidEvaluationRef.current = evaluation;
+    try {
+      localStorage.setItem('seren_user_eval', JSON.stringify(evaluation));
+    } catch {}
   }, [evaluation]);
 
   // Persist the Score Report history so old reports survive reloads
@@ -186,6 +242,69 @@ export default function App() {
     setCurrentView('report');
   };
 
+  // -------------------------------------------------------------------------
+  // Lesson-only regeneration.
+  //
+  // When the lesson pass of an evaluation degrades (rate limit, provider
+  // hiccup) the learner should not have to retake the whole test. This
+  // regenerates ONLY the roadmap from the answers already on record and
+  // replaces the stored plan in place, keeping the tick marks.
+  // -------------------------------------------------------------------------
+  const [isRegeneratingLessons, setIsRegeneratingLessons] = useState(false);
+  const [lessonRegenError, setLessonRegenError] = useState<string | null>(null);
+
+  const handleRegenerateLessons = async (): Promise<boolean> => {
+    if (!userProfile || !evaluation) return false;
+    setIsRegeneratingLessons(true);
+    setLessonRegenError(null);
+    try {
+      const res = await fetch('/api/generate-lessons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userProfile,
+          evaluation: {
+            pillars: evaluation.pillars,
+            upgradedExpressions: evaluation.upgradedExpressions,
+            priorityErrors: evaluation.priorityErrors,
+            lessonRoadmap: evaluation.lessonRoadmap,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success || !Array.isArray(data.lessonRoadmap)) {
+        throw new Error(data?.error || 'Lesson generation failed.');
+      }
+      const modules = data.lessonRoadmap;
+      if (modules.length === 0) {
+        setLessonRegenError(
+          'Seren could not find a teachable error in this attempt — try the diagnostic again for fresh lessons.'
+        );
+        return false;
+      }
+      const nextEval: SpeakingEvaluation = {
+        ...evaluation,
+        lessonRoadmap: modules,
+        degradation: data.degradation || undefined,
+      };
+      setEvaluation(nextEval);
+      setLessonPlans(
+        saveLessonPlan(nextEval, {
+          source: evaluation.testId === 'practice-chat' ? 'practice' : 'cambridge',
+          testId: evaluation.testId,
+          testLabel: evaluation.testLabel || 'Custom Lessons',
+        })
+      );
+      return true;
+    } catch (err: any) {
+      console.error('Lesson regeneration failed:', err);
+      setLessonRegenError(err?.message || 'Seren could not rebuild your lessons right now.');
+      return false;
+    } finally {
+      setIsRegeneratingLessons(false);
+    }
+  };
+
   // Persist a finished evaluation into the Score Report history and mark it as
   // the one currently open. Kept bounded so localStorage never balloons.
   const saveReportToHistory = (
@@ -275,6 +394,36 @@ export default function App() {
 
       {/* Primary Workspace Viewport */}
       <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col">
+        {/* Cloud-sync banner — a failed upload is never silent. */}
+        {syncStatus.phase === 'error' && syncStatus.message && (
+          <div className="mb-4 p-3.5 rounded-2xl bg-[#ff5555]/10 border border-[#ff5555]/40 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-start gap-2.5 flex-1 min-w-0">
+              <CloudOff className="w-4 h-4 text-[#ff5555] shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[#f8f8f2]">Cloud sync problem</p>
+                <p className="text-xs text-[#f8f8f2]/80 mt-0.5 leading-relaxed">{syncStatus.message}</p>
+                {syncStatus.pending > 0 && (
+                  <p className="text-[11px] text-[#6272a4] mt-0.5">
+                    {syncStatus.pending} item(s) are still waiting to upload — nothing is lost, it stays on this device.
+                  </p>
+                )}
+              </div>
+            </div>
+            {syncStatus.retryable && (
+              <button
+                id="banner-sync-retry"
+                type="button"
+                onClick={() => void handleSyncNow()}
+                disabled={syncBusy}
+                className="px-3 py-1.5 rounded-xl bg-[#ff5555] hover:bg-[#ff5555]/90 disabled:opacity-60 text-[#f8f8f2] text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncBusy ? 'animate-spin' : ''}`} />
+                <span>Retry sync</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {userProfile && currentView === 'diagnostic' && (
           <CambridgeTest
             userProfile={userProfile}
@@ -295,6 +444,9 @@ export default function App() {
             onToggleVoice={handleToggleVoice}
             onNavigateToLessons={() => setCurrentView('lessons')}
             onRetakeTest={() => setCurrentView('diagnostic')}
+            onRegenerateLessons={handleRegenerateLessons}
+            isRegeneratingLessons={isRegeneratingLessons}
+            lessonRegenError={lessonRegenError}
           />
         )}
 
@@ -308,6 +460,10 @@ export default function App() {
             onMarkLessonComplete={(planId, moduleId) =>
               setLessonPlans(markLessonComplete(planId, moduleId))
             }
+            onRegenerateLessons={handleRegenerateLessons}
+            isRegeneratingLessons={isRegeneratingLessons}
+            lessonRegenError={lessonRegenError}
+            onNavigateToDiagnostic={() => setCurrentView('diagnostic')}
           />
         )}
 
@@ -365,6 +521,9 @@ export default function App() {
       {showProfileEditor && userProfile && (
         <UserPref
           profile={userProfile}
+          accountEmail={session.email}
+          accountOffline={isLocalOnlySession(session)}
+          onSignOut={onSignOut}
           onSave={(profile) => {
             setUserProfile(profile);
             setShowProfileEditor(false);
@@ -377,4 +536,85 @@ export default function App() {
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
+};
+
+/**
+ * Auth shell — sign in FIRST on first open (before onboarding), restore any
+ * existing Firebase session, hydrate local storage from the account, and only
+ * then mount the app so every useState initialiser reads the merged data.
+ */
+export default function App() {
+  const [phase, setPhase] = useState<'boot' | 'gate' | 'ready'>('boot');
+  const [session, setSession] = useState<AuthSession | null>(null);
+
+  // Boot once: restore the Firebase session (the SDK persists it, so a
+  // returning user is signed in without any prompt), then hydrate (merge
+  // account data in, upload local-only keys) BEFORE mounting SerenApp.
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = onSessionChange((restored) => {
+      if (cancelled) return;
+      if (!restored) {
+        setPhase('gate');
+        return;
+      }
+      void (async () => {
+        setSyncSession(restored);
+        try {
+          // Best-effort recovery + cloud merge before the app reads localStorage.
+          await fetchRecoverySnapshot();
+          await hydrate(restored);
+        } catch {}
+        if (cancelled) return;
+        setSession(restored);
+        setPhase('ready');
+      })();
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleAuthed = async (next: AuthSession) => {
+    setSyncSession(next);
+    try {
+      // One-time restore of wipe-bug transcripts (no-op when keys are intact),
+      // then hydrate so recovered data uploads to this account too.
+      await fetchRecoverySnapshot();
+    } catch {}
+    try {
+      await hydrate(next);
+    } catch {}
+    setSession(next);
+    setPhase('ready');
+  };
+
+  const handleSignOut = async () => {
+    setSyncSession(null);
+    setSession(null);
+    setPhase('gate');
+    try {
+      await signOut();
+    } catch {}
+  };
+
+  if (phase === 'gate') {
+    return <AccountGate onAuthed={handleAuthed} />;
+  }
+
+  if (phase !== 'ready' || !session) {
+    return (
+      <div className="min-h-screen bg-[#282a36] flex items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-[#6272a4]">
+          <span className="w-4 h-4 rounded-full border-2 border-[#bd93f9]/40 border-t-[#bd93f9] animate-spin" />
+          Starting Seren…
+        </div>
+      </div>
+    );
+  }
+
+  // Remount the workspace per account so all state initialisers read that
+  // account's hydrated storage and never leak between accounts.
+  return <SerenApp key={session.uid} session={session} onSignOut={handleSignOut} lastSyncAt={null} />;
 }

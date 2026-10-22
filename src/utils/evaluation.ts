@@ -11,7 +11,9 @@
 
 import {
   CEFRLevel,
+  DegradationState,
   PillarScore,
+  PriorityError,
   PronunciationTip,
   SpeakingEvaluation,
   UpgradedExpression,
@@ -36,6 +38,32 @@ const toTextArray = (v: any): string[] => {
 };
 
 const clampBand = (n: number): number => Math.min(9, Math.max(0, n));
+
+const normalizePriorityError = (raw: any): PriorityError => ({
+  category: toText(raw?.category) || 'General',
+  quote: toText(raw?.quote),
+  whyWrong: toText(raw?.whyWrong),
+  fix: toText(raw?.fix),
+});
+
+/**
+ * Normalize the server's degradation block. A malformed/absent block must
+ * never crash the report — it simply means "nothing went wrong".
+ */
+export function normalizeDegradation(raw: any): DegradationState | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const notes = Array.isArray(raw?.notes)
+    ? raw.notes.map(toText).map((s: string) => s.trim()).filter(Boolean)
+    : [];
+  return {
+    lessonsFailed: !!raw?.lessonsFailed,
+    lessonsPartial: !!raw?.lessonsPartial,
+    pronunciationEmpty: !!raw?.pronunciationEmpty,
+    usedFallback: !!raw?.usedFallback,
+    notes,
+    retryable: raw?.retryable !== false,
+  };
+}
 
 const normalizePillar = (raw: any, fallbackBand: number, fallbackCefr: CEFRLevel): PillarScore => ({
   score: clampBand(toNumber(raw?.score, fallbackBand)),
@@ -107,5 +135,15 @@ export function normalizeEvaluation(raw: any): SpeakingEvaluation {
         : 'Good') as 'High' | 'Good' | 'Repetitive',
     },
     lessonRoadmap: Array.isArray(raw?.lessonRoadmap) ? raw.lessonRoadmap : [],
+    // Keep the examiner's verbatim mistakes so lessons can be regenerated
+    // later without re-running the whole test.
+    ...(Array.isArray(raw?.priorityErrors) && raw.priorityErrors.length
+      ? { priorityErrors: raw.priorityErrors.map(normalizePriorityError) }
+      : {}),
+    // Preserve the degradation metadata so the report can explain what was
+    // missing and offer a retry.
+    ...(normalizeDegradation(raw?.degradation)
+      ? { degradation: normalizeDegradation(raw?.degradation) }
+      : {}),
   };
 }

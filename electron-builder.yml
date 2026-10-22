@@ -27,14 +27,16 @@ directories:
 # devDependencies never are.
 files:
   - package.json
+  - .env
   - electron/**/*
   - dist/**/*
   # README screenshots (several MB) that the app itself never uses.
   - '!dist/Preview/**'
   - '!dist/**/*.map'
-  # Never ship local secrets or local state.
-  - '!.env'
-  - '!.env.*'
+  # Ship the runtime .env (API keys + provider config) inside the app bundle so a
+  # fresh install authenticates out of the box. On first launch the shell also
+  # seeds a writable copy into the app-data folder (~/.config/Seren on Linux).
+  - '!.env.example'
   - '!seren-settings.json'
   - '!models/**'
   - '!release/**'

@@ -1,5 +1,6 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { pipeline, type Readable } from 'stream';
+import https from 'https';
 import type { Response } from 'express';
 import { runtimeConfig } from './config';
 import { cleanSpeechText } from '../utils/textClean';
@@ -80,24 +81,161 @@ export function cleanTextForTts(text: string): string {
 
 const TTS_SYNTHESIS_TIMEOUT_MS = 8000;
 const TTS_MAX_ATTEMPTS = 3;
+// Must stay below TTS_SYNTHESIS_TIMEOUT_MS so a stuck connect fails with a
+// clear error (and releases the socket) before the outer timeout fires.
+const TTS_CONNECTION_TIMEOUT_MS = 6000;
+// One format for the whole app — the socket is bound to it, so a pooled
+// connection must never be reused with a different one.
+const TTS_OUTPUT_FORMAT = OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3;
 
-// NOTE: A new MsEdgeTTS instance must be created per call. The library's
-// internal state (including resolved voice metadata) is corrupted when an
-// instance whose stream has ended is reused — that produces
-// "Cannot read properties of undefined (reading 'voiceLocale')".
+// ---------------------------------------------------------------------------
+// Edge TTS HTTP agent
+// ---------------------------------------------------------------------------
+// Node's "Happy Eyeballs" (autoSelectFamily, on by default since Node 20)
+// races the A and AAAA records of api.msedgeservices.com. On a host without
+// IPv6 connectivity the AAAA attempt fails instantly with ENETUNREACH, and
+// the A attempt is aborted after autoSelectFamilyAttemptTimeout (250ms by
+// default) — even though the A connect itself needs ~400ms here. Every such
+// race collapses into a Node AggregateError (code ETIMEDOUT, empty message),
+// which is what surfaced as:
+//
+//   [TTS] attempt 1/3 failed (ETIMEDOUT): Edge TTS WebSocket error:  (code=ETIMEDOUT)
+//
+// Letting the resolver pick a single address (the OS applies the usual
+// dual-stack preference) removes the race entirely — measured 0/10 failures
+// versus 2/10 with ETIMEDOUT before this change.
+const edgeTtsAgent = new https.Agent({
+  autoSelectFamily: false,
+});
 
-// A `TtsSession` bundles the produced audio stream with the MsEdgeTTS
-// instance that created it, so callers can always release the WebSocket once
-// the stream is consumed (or abandoned).
-interface TtsSession {
-  audioStream: Readable;
+// ---------------------------------------------------------------------------
+// Edge TTS connection pool
+// ---------------------------------------------------------------------------
+// Every utterance used to open a brand-new WebSocket to Microsoft's Edge
+// endpoint: a fresh DNS lookup, TCP handshake, TLS handshake and WebSocket
+// upgrade — ~1.5s before the first audio sample, and a brand-new connection
+// every single time Seren speaks. Rapid-fire speech also tripped the
+// endpoint's rate limiter (HTTP 429).
+//
+// The endpoint speaks the same protocol over a long-lived socket, so the
+// connection is kept warm and reused. One entry per voice: the Cambridge
+// Solutions tab uses a fixed examiner voice while the rest of the app uses
+// the configured one, and a socket is bound to the voice it was opened with.
+//
+// The library (msedge-tts 2.x) supports this: `setMetadata` is a no-op when
+// the voice and format are unchanged, `_send` transparently re-opens the
+// socket if it was closed in the meantime, and every request is tracked by
+// its own request id, so several utterances can share one socket.
+const ttsPool = new Map<string, PooledTts>();
+
+interface PooledTts {
   tts: MsEdgeTTS;
+  voice: string;
+  /** Resolves once the voice/format handshake has completed. */
+  ready: Promise<void>;
+  /** Number of requests currently streaming on this connection. */
+  active: number;
+  /** The connection is broken and must not be handed out again. */
+  dead: boolean;
+  /** Idle timer that closes the socket after a period of inactivity. */
+  idleTimer: NodeJS.Timeout | null;
 }
 
-function destroyTtsSession(session: TtsSession | null | undefined): void {
-  if (!session) return;
+/** Close an idle connection so it doesn't linger for the whole app session. */
+const TTS_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function acquireTts(voice: string): Promise<PooledTts> {
+  let entry = ttsPool.get(voice);
+  if (!entry) {
+    const tts = new MsEdgeTTS({
+      agent: edgeTtsAgent,
+      connectionTimeoutMs: TTS_CONNECTION_TIMEOUT_MS,
+    });
+    entry = { tts, voice, active: 0, dead: false, ready: Promise.resolve(), idleTimer: null };
+    // Publish before awaiting so concurrent callers share one socket.
+    ttsPool.set(voice, entry);
+    // Opening the socket can fail (offline, DNS hiccup, TLS problem) — the
+    // retry loop in synthesizeToResponse() picks it up from there.
+    entry.ready = tts
+      .setMetadata(voice, TTS_OUTPUT_FORMAT, {})
+      .then(() => undefined)
+      .catch((err) => {
+        // The handshake failed — make sure this half-open entry never
+        // reaches the pool and every waiter sees the same error.
+        discardTts(entry!);
+        throw err;
+      });
+  }
+  entry.active++;
+  if (entry.idleTimer) {
+    clearTimeout(entry.idleTimer);
+    entry.idleTimer = null;
+  }
+  try {
+    await entry.ready;
+  } catch (err) {
+    entry.active--;
+    throw err;
+  }
+  return entry;
+}
+
+/** Drops a broken connection so the next request opens a fresh one. */
+function discardTts(entry: PooledTts): void {
+  if (entry.dead) return;
+  entry.dead = true;
+  if (entry.idleTimer) {
+    clearTimeout(entry.idleTimer);
+    entry.idleTimer = null;
+  }
+  if (ttsPool.get(entry.voice) === entry) ttsPool.delete(entry.voice);
+  try { entry.tts.close(); } catch {}
+}
+
+/** Returns a connection to the pool, or discards it when it went bad. */
+function releaseTts(entry: PooledTts, dead: boolean): void {
+  if (dead) {
+    discardTts(entry);
+    return;
+  }
+  if (entry.active > 0) entry.active--;
+  if (entry.active === 0 && !entry.dead) scheduleIdleClose(entry);
+}
+
+/** Closes a connection that has been idle for a while. */
+function scheduleIdleClose(entry: PooledTts): void {
+  if (entry.idleTimer) clearTimeout(entry.idleTimer);
+  entry.idleTimer = setTimeout(() => {
+    entry.idleTimer = null;
+    if (entry.active > 0 || entry.dead) return;
+    discardTts(entry);
+  }, TTS_IDLE_TIMEOUT_MS);
+  // Never keep the process alive just for an idle TTS socket.
+  entry.idleTimer.unref?.();
+}
+
+/** Closes every pooled Edge TTS connection (server shutdown). */
+export function closeAllTtsConnections(): void {
+  for (const entry of Array.from(ttsPool.values())) {
+    discardTts(entry);
+  }
+  ttsPool.clear();
+}
+
+// A `TtsSession` bundles the produced audio stream with the pooled
+// connection that created it, so callers can always release the stream once
+// it is consumed (or abandoned).
+interface TtsSession {
+  audioStream: Readable;
+  entry: PooledTts;
+  released: boolean;
+}
+
+function destroyTtsSession(session: TtsSession | null | undefined, dead = false): void {
+  if (!session || session.released) return;
+  session.released = true;
   try { session.audioStream.destroy(); } catch {}
-  try { session.tts.close(); } catch {}
+  releaseTts(session.entry, dead);
 }
 
 async function synthesizeOnce(
@@ -106,17 +244,15 @@ async function synthesizeOnce(
   rate?: number,
   pitch?: number
 ): Promise<TtsSession> {
-  // A new MsEdgeTTS instance per call — see comment at TTS_MAX_ATTEMPTS above.
-  const tts = new MsEdgeTTS();
+  const clean = cleanTextForTts(text);
+  if (!clean) throw new Error('No speakable text after cleanup');
+
+  // Reuse a warm connection for this voice instead of dialling Microsoft for
+  // every single utterance. acquireTts() opens one on demand and hands the
+  // same socket to the next request.
+  const entry = await acquireTts(voice);
+
   try {
-    // Pass empty metadataOptions {} as 3rd arg — prevents the library from
-    // crashing with "Cannot read properties of undefined (reading 'voiceLocale')"
-    // when it tries to access metadataOptions.voiceLocale internally.
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {});
-
-    const clean = cleanTextForTts(text);
-    if (!clean) throw new Error('No speakable text after cleanup');
-
     const prosody: { rate?: number; pitch?: string } = {};
     if (typeof rate === 'number' && isFinite(rate) && rate > 0 && rate !== 1) prosody.rate = rate;
     if (typeof pitch === 'number' && isFinite(pitch)) {
@@ -125,12 +261,12 @@ async function synthesizeOnce(
     }
 
     // msedge-tts versions differ on sync/async toStream — handle both
-    const result: any = tts.toStream(escapeXml(clean), prosody);
+    const result: any = entry.tts.toStream(escapeXml(clean), prosody);
     const { audioStream } = result && typeof result.then === 'function' ? await result : result;
-    return { audioStream: audioStream as Readable, tts };
+    return { audioStream: audioStream as Readable, entry, released: false };
   } catch (err) {
-    // Never leak the WebSocket when setup/synthesis fails part-way.
-    try { tts.close(); } catch {}
+    // The connection is unusable — drop it so the next attempt reconnects.
+    releaseTts(entry, true);
     throw err;
   }
 }
@@ -148,14 +284,16 @@ function withSynthesisTimeout(
       if (settled) return;
       settled = true;
       // The synthesis may still be pending — destroy it the moment it resolves.
-      void synth.then(destroyTtsSession).catch(() => {});
+      // A timed-out turn leaves the socket in an unknown state, so the
+      // connection is discarded rather than reused.
+      void synth.then((session) => destroyTtsSession(session, true)).catch(() => {});
       reject(new Error('TTS synthesis timed out'));
     }, ms);
 
     synth.then(
       (session) => {
         if (settled) {
-          destroyTtsSession(session);
+          destroyTtsSession(session, true);
           return;
         }
         settled = true;
@@ -218,6 +356,9 @@ export async function synthesizeToResponse(
       }
 
       let session: TtsSession | null = null;
+      // Set when the Edge connection itself failed, so the pooled socket is
+      // dropped instead of being reused for the next attempt.
+      let connectionBroken = false;
       const onClientGone = () => {
         clientGone = true;
         // Tear down whatever is mid-flight so the loop exits immediately.
@@ -255,16 +396,21 @@ export async function synthesizeToResponse(
           // re-throws "Cannot pipe to a closed or destroyed stream".
           throw err;
         }
+        // The failure came from the Edge service, not from the browser: the
+        // socket is unusable (dropped mid-stream, HTTP 429, TLS/connect
+        // error). Mark it so the pooled connection is discarded and the next
+        // attempt dials a fresh one.
+        connectionBroken = true;
         if (res.headersSent) break;
         console.warn(
           `[TTS] attempt ${attempt + 1}/${TTS_MAX_ATTEMPTS} failed${errCode ? ` (${errCode})` : ''}:`,
           err?.message || err
         );
       } finally {
-        // Release the session's WebSocket + stream whether we succeeded,
+        // Release the session's stream + connection whether we succeeded,
         // failed, timed out, or the client disconnected mid-pipe.
         res.removeListener('close', onClientGone);
-        destroyTtsSession(session);
+        destroyTtsSession(session, connectionBroken);
         session = null;
       }
     }

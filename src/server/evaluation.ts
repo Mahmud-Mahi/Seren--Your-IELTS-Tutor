@@ -45,6 +45,18 @@ export function normalizeEvaluationShape(ev: any): any {
     varietyRating: toText(ev?.stats?.varietyRating) || 'Good',
   };
   ev.lessonRoadmap = Array.isArray(ev?.lessonRoadmap) ? ev.lessonRoadmap : [];
+  // Keep the examiner's verbatim mistakes so the lessons can be regenerated
+  // later (client sends them back to /api/generate-lessons).
+  ev.priorityErrors = Array.isArray(ev?.priorityErrors)
+    ? ev.priorityErrors
+        .map((e: any) => ({
+          category: toText(e?.category) || 'General',
+          quote: toText(e?.quote),
+          whyWrong: toText(e?.whyWrong),
+          fix: toText(e?.fix),
+        }))
+        .filter((e: any) => e.quote)
+    : [];
   return ev;
 }
 
@@ -363,6 +375,59 @@ export function generateFallbackEvaluation(userProfile: any, responses: any[], s
 }
 
 // ---------------------------------------------------------------------------
+// Degradation metadata.
+//
+// A report can be complete, partially repaired, or missing whole sections.
+// The client must be able to tell those apart (and decide whether to offer a
+// retry), so the server states the degradation explicitly instead of silently
+// shipping an empty panel.
+// ---------------------------------------------------------------------------
+
+export interface DegradationInput {
+  lessonsFailed: boolean;
+  lessonsPartial: boolean;
+  pronunciationEmpty: boolean;
+  usedFallback: boolean;
+  notes?: string[];
+}
+
+/**
+ * Build the degradation descriptor for a response. Returns `null` when the
+ * report is complete — a clean report carries no degradation block at all.
+ */
+export function buildDegradation(input: DegradationInput): any | null {
+  const notes = (input.notes || []).filter(Boolean).map((n) => String(n));
+  const degraded =
+    input.lessonsFailed ||
+    input.lessonsPartial ||
+    input.pronunciationEmpty ||
+    input.usedFallback;
+  if (!degraded) return null;
+
+  if (input.usedFallback) {
+    notes.unshift('The AI engine was unavailable, so this report uses Seren\'s built-in baseline.');
+  }
+  if (input.lessonsFailed) {
+    notes.unshift('Your personalized lesson roadmap could not be generated.');
+  } else if (input.lessonsPartial) {
+    notes.unshift('Some lesson modules were repaired to keep the rest usable.');
+  }
+  if (input.pronunciationEmpty) {
+    notes.unshift('No pronunciation coaching notes were produced for this attempt.');
+  }
+
+  return {
+    lessonsFailed: !!input.lessonsFailed,
+    lessonsPartial: !!input.lessonsPartial,
+    pronunciationEmpty: !!input.pronunciationEmpty,
+    usedFallback: !!input.usedFallback,
+    notes,
+    // A failed/partial generation is worth retrying; a fallback report too.
+    retryable: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic lesson-focus backfill.
 //
 // Every roadmap module must be anchored to ONE specific error. The evaluation
@@ -417,6 +482,27 @@ export function backfillLessonFocus(ev: any): void {
         : pillar?.growthAreas?.[0]
           ? `Tendency to fix: ${pillar.growthAreas[0]}`
           : '';
+    }
+
+    // v2 module fields: the corrected sentence + "fix my sentence" exercises.
+    // Backfilled from the deterministic upgrade pairs so a lazy model can't
+    // produce a lesson without a concrete fix.
+    const drill = (m.practiceDrill = m.practiceDrill || {});
+    if (!m.correction || !String(m.correction).trim()) {
+      const pair = upgrades.find(
+        (u: any) =>
+          u &&
+          String(u.original || '').trim() &&
+          m.exampleError &&
+          String(u.original) === String(m.exampleError)
+      );
+      if (pair) m.correction = String(pair.upgraded);
+    }
+    if (!Array.isArray(drill.exerciseItems)) drill.exerciseItems = [];
+    if (drill.exerciseItems.length === 0 && m.exampleError && m.correction) {
+      drill.exerciseItems = [
+        { faulty: String(m.exampleError), correction: String(m.correction), note: 'Re-say it with the fix' },
+      ];
     }
   });
 }

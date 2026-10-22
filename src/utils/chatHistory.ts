@@ -40,6 +40,156 @@ export function saveMessagesByMode(messages: Record<ChatMode, ChatMessage[]>): v
   }
 }
 
+// ---------------------------------------------------------------------------
+// Merging two devices' chat histories.
+//
+// A plain last-write-wins replace means two devices that both talked to Seren
+// keep ERASING each other's conversations: whoever wrote last wins, and the
+// other device's messages are gone (in the cloud AND locally). The interview
+// thread is a conversation, not a preference — it must be UNIONED, not
+// overwritten. Messages carry unique ids, so a union is exact and lossless.
+// ---------------------------------------------------------------------------
+
+export interface ChatHistoryBundle {
+  Interview: ChatMessage[];
+  'Casual Chat': ChatMessage[];
+}
+
+function parseHistory(raw: string | null | undefined): ChatHistoryBundle | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return {
+      Interview: Array.isArray(parsed.Interview) ? filterValidMessages(parsed.Interview) : [],
+      'Casual Chat': Array.isArray(parsed['Casual Chat'])
+        ? filterValidMessages(parsed['Casual Chat'])
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Newest activity in a thread (0 when the thread is empty).
+ */
+function lastActivity(messages: ChatMessage[]): number {
+  let newest = 0;
+  for (const m of messages) {
+    const t = m?.timestamp || 0;
+    if (t > newest) newest = t;
+  }
+  return newest;
+}
+
+/**
+ * Merge two chat histories, THREAD BY THREAD.
+ *
+ * A thread is a transcript, not a bag of messages: interleaving two
+ * independent conversations (an old greeting in the middle of a new one)
+ * makes no sense, and unioning them also resurrects stale fragments of
+ * sessions that are weeks old. So each thread is decided on its own:
+ *
+ *   - the thread whose LAST MESSAGE is more recent wins  → the current
+ *     conversation replaces the old one;
+ *   - a thread that is empty on one side never erases the other side;
+ *   - on a tie, the messages are unioned (nothing is lost).
+ *
+ * The comparison uses the newest MESSAGE timestamp, not the timestamp of the
+ * localStorage key: the key's stamp says when the file was written (which
+ * happens on any unrelated edit), while the message timestamps say when the
+ * conversation actually happened.
+ *
+ * Returns null when either side cannot be parsed (the caller then falls back
+ * to a plain replace rather than guessing).
+ */
+export function mergeChatHistories(
+  localRaw: string | null | undefined,
+  remoteRaw: string | null | undefined,
+  /**
+   * When the two threads have different recency, the timestamps say which one
+   * is the current conversation. They ALSO decide the empty-vs-non-empty case:
+   * an empty thread only erases the other side when the side that emptied it
+   * is the newer one — otherwise it just means "this device never had that
+   * thread" and erasing it would destroy the other device's conversation.
+   */
+  opts?: { localStamp?: number; remoteStamp?: number }
+): string | null {
+  const local = parseHistory(localRaw);
+  const remote = parseHistory(remoteRaw);
+  if (!local || !remote) return null;
+  const localStamp = opts?.localStamp ?? 0;
+  const remoteStamp = opts?.remoteStamp ?? 0;
+  const merged: ChatHistoryBundle = { Interview: [], 'Casual Chat': [] };
+  for (const mode of ['Interview', 'Casual Chat'] as const) {
+    const localThread = local[mode];
+    const remoteThread = remote[mode];
+    const localLast = lastActivity(localThread);
+    const remoteLast = lastActivity(remoteThread);
+    if (localLast > remoteLast) {
+      merged[mode] = localThread;
+    } else if (remoteLast > localLast) {
+      merged[mode] = remoteThread;
+    } else if (localThread.length === 0 || remoteThread.length === 0) {
+      // One side has no thread at all. It erases the other side ONLY when it is
+      // the newer side — i.e. that device deliberately cleared the thread.
+      const localIsNewer = localStamp > remoteStamp;
+      merged[mode] = localIsNewer ? localThread : remoteThread;
+    } else {
+      // Same recency (or both empty) — union, de-duplicated by message id.
+      const seen = new Set<string>();
+      const all = [...localThread, ...remoteThread].sort(
+        (a, b) => (a?.timestamp || 0) - (b?.timestamp || 0)
+      );
+      merged[mode] = all.filter((m) => {
+        if (!m || seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      });
+    }
+  }
+  return JSON.stringify(merged);
+}
+
+/**
+ * Notifies the app that a mirrored value changed underneath it. The sync
+ * engine writes remote values straight into localStorage, but React components
+ * that mirrored that storage into their own state would keep showing the old
+ * value until they re-read. This event is the bridge.
+ */
+export const REMOTE_UPDATE_EVENT = 'seren:remote-update';
+
+export function notifyRemoteUpdate(key: string): void {
+  try {
+    globalThis.dispatchEvent?.(
+      new CustomEvent(REMOTE_UPDATE_EVENT, { detail: { key } }) as Event
+    );
+  } catch {
+    // No DOM (tests / SSR) — nothing to notify.
+  }
+}
+
+/**
+ * Subscribe to chat-history changes made by the sync engine (a remote device
+ * pushed an update) or by another tab of this same browser.
+ */
+export function subscribeToChatHistory(onChange: (key: string) => void): () => void {
+  const remoteHandler = (event: Event) => {
+    const key = (event as CustomEvent)?.detail?.key;
+    onChange(typeof key === 'string' ? key : '');
+  };
+  const storageHandler = (event: StorageEvent) => {
+    if (event.key) onChange(event.key);
+  };
+  globalThis.addEventListener?.(REMOTE_UPDATE_EVENT, remoteHandler as EventListener);
+  globalThis.addEventListener?.('storage', storageHandler as EventListener);
+  return () => {
+    globalThis.removeEventListener?.(REMOTE_UPDATE_EVENT, remoteHandler as EventListener);
+    globalThis.removeEventListener?.('storage', storageHandler as EventListener);
+  };
+}
+
 function filterValidMessages(list: any[]): ChatMessage[] {
   return list.filter(
     (m): m is ChatMessage =>

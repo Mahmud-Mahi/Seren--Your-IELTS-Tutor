@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// Seren stores every user's progress under their own Firebase user id.
+//
+// The client signs in with Google (Firebase Auth) and the Firestore SDK
+// attaches that user's ID token to every request. `request.auth.uid` is
+// therefore the only thing a client can prove about itself — it cannot claim
+// another user's id, because the token is signed by Google.
+//
+// Layout: users/{uid}/kv/{key} -> { k, v, u }
+//   k = the original localStorage key
+//   v = the stored string (null = deleted / tombstone)
+//   u = the wall-clock timestamp of the write (last-write-wins merge)
+//
+// A user may read and write ONLY their own documents. There is no shared
+// collection and no server-side key: an attacker cannot read another
+// learner's transcripts, reports or drafts.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

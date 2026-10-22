@@ -1,6 +1,21 @@
-import React from 'react';
-import { Sparkles, Award, BookOpen, MessageSquare, Speech, Volume2, VolumeX, UserCheck, Settings } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Sparkles,
+  Award,
+  BookOpen,
+  MessageSquare,
+  Speech,
+  Volume2,
+  VolumeX,
+  UserCheck,
+  Settings,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Check,
+} from 'lucide-react';
 import { UserProfile, SpeakingEvaluation } from '../types';
+import { getSyncStatus, subscribeSyncStatus, syncNow, type SyncStatus } from '../auth/sync';
 import { USER_AVATAR_IMAGE, SEREN_PROFILE_IMAGE } from '../assets/characterAssets';
 import { useShortcutHint } from '../hooks/useShortcut';
 
@@ -34,6 +49,23 @@ export const Header: React.FC<HeaderProps> = ({
   const voiceHint = useShortcutHint('global.toggleVoice');
   const settingsHint = useShortcutHint('global.openSettings');
   const withHint = (label: string, hint: string) => (hint ? `${label} (${hint})` : label);
+
+  // Cloud-sync indicator. A failed upload used to be completely invisible, so
+  // the learner had no idea their progress was not reaching the cloud. The
+  // badge shows the real state and offers a one-click retry.
+  const [sync, setSync] = useState<SyncStatus>(() => getSyncStatus());
+  const [syncBusy, setSyncBusy] = useState(false);
+  useEffect(() => subscribeSyncStatus(setSync), []);
+  const handleSyncNow = async () => {
+    setSyncBusy(true);
+    try {
+      await syncNow();
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+  const syncBroken = sync.phase === 'error' && !!sync.message;
+  const syncPending = sync.phase === 'syncing' || sync.pending > 0;
 
   return (
     <header className="sticky top-0 z-40 w-full bg-[#21222c]/90 backdrop-blur-xl border-b border-[#44475a]/80">
@@ -181,6 +213,40 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
+
+          {/* Cloud sync state — visible, actionable, and honest about failures. */}
+          {userProfile && (
+            <button
+              id="header-sync-status"
+              type="button"
+              onClick={() => void handleSyncNow()}
+              disabled={syncBusy}
+              title={
+                syncBroken
+                  ? sync.message
+                  : syncPending
+                    ? `Uploading ${sync.pending} item(s) to the cloud…`
+                    : sync.lastSyncedAt
+                      ? 'Cloud sync is up to date — click to sync now'
+                      : 'Sync your progress to the cloud'
+              }
+              className={`p-2 rounded-xl border transition-all ${
+                syncBroken
+                  ? 'bg-[#ff5555]/15 border-[#ff5555]/60 text-[#ff5555] hover:bg-[#ff5555]/25'
+                  : syncPending
+                    ? 'bg-[#ffb86c]/15 border-[#ffb86c]/50 text-[#ffb86c] hover:bg-[#ffb86c]/25'
+                    : 'bg-[#21222c] border-[#44475a] text-[#50fa7b] hover:bg-[#44475a]'
+              }`}
+            >
+              {syncBroken ? (
+                <CloudOff className="w-4 h-4" />
+              ) : syncPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Cloud className="w-4 h-4" />
+              )}
+            </button>
+          )}
 
           <button
             id="header-settings"

@@ -6,7 +6,9 @@ export function generateFallbackChatResponse(userProfile: any, message: string, 
 
   // Casual Chat: always reply as a warm human friend — no grading, no IELTS.
   if (mode === 'Casual Chat') {
-    if (cleanMsg.includes('hello') || cleanMsg.includes('hi') || cleanMsg.includes('hey') || cleanMsg.includes('good morning') || cleanMsg.includes('good afternoon')) {
+    // Word-boundary match: plain `includes('hi')` used to fire on "which",
+    // "this", "their"… and wrongly greet in the middle of a real answer.
+    if (/\b(hello|hi|hey|good morning|good afternoon)\b/i.test(cleanMsg)) {
       return {
         replyText: casualGreetingReply(nickname),
         mood: 'greeting',
@@ -23,7 +25,7 @@ export function generateFallbackChatResponse(userProfile: any, message: string, 
     };
   }
 
-  if (cleanMsg.includes('hello') || cleanMsg.includes('hi') || cleanMsg.includes('hey')) {
+  if (/\b(hello|hi|hey)\b/i.test(cleanMsg)) {
     return {
       replyText: tutorGreetingReply(nickname),
       mood: 'greeting',

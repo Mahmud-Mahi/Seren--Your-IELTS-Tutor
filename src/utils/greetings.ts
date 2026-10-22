@@ -149,9 +149,88 @@ export function lessonModuleIntro(moduleTitle: string, nickname: string): string
   return `Welcome to "${moduleTitle}", ${nickname}! Let's master this concept.`;
 }
 
-/** Spoken intro: same welcome PLUS the practice prompt, read aloud only. */
-export function lessonModuleIntroSpeech(moduleTitle: string, nickname: string, practicePrompt: string): string {
-  return `${lessonModuleIntro(moduleTitle, nickname)} Here is your practice prompt: ${practicePrompt}`;
+/**
+ * Resume intro — used when the learner comes BACK to a lesson they already
+ * started (the round state is restored, so the full welcome would be a lie).
+ * The screen still needs Seren's bubble and her voice, otherwise the avatar
+ * sits there mute in the "greeting" mood with no dialogue box at all.
+ */
+export function lessonModuleResumeIntro(moduleTitle: string, nickname: string): string {
+  return `Welcome back to "${moduleTitle}", ${nickname}! Let's pick up where you left off.`;
+}
+
+/** What Seren shows in her dialogue bubble, and what she reads aloud. */
+export interface LessonGreeting {
+  /** The text shown in Seren's dialogue bubble. */
+  display: string;
+  /** The text Seren reads aloud (usually longer than the bubble). */
+  spoken: string;
+}
+
+/**
+ * Chooses Seren's opening line for a lesson.
+ *
+ * `resuming` must NEVER produce an empty greeting: a resumed lesson still
+ * needs Seren's bubble and her voice, otherwise the avatar sits mute in the
+ * "greeting" mood with no dialogue box at all — which looked like a broken
+ * app on every visit after the first one.
+ *
+ * NOTE — the resumed greeting stays SHORT on purpose ("Welcome back …").
+ * It is only used when the learner has REAL work to pick up (see
+ * `hasSessionContent` in src/autosave/lessonSession.ts); a lesson that was
+ * never started opens through the first-time path and reads the drill
+ * prompt, the error analysis and the corrected sentence aloud.
+ */
+export function lessonModuleGreeting(opts: {
+  moduleTitle: string;
+  nickname: string;
+  practicePrompt?: string;
+  errorAnalysis?: string;
+  correction?: string;
+  /** True when the learner comes back to a lesson they already started. */
+  resuming?: boolean;
+}): LessonGreeting {
+  const title = (opts.moduleTitle || '').trim();
+  const nickname = opts.nickname || 'Learner';
+  if (!title) {
+    const fallback = `Welcome back, ${nickname}! Let's keep going.`;
+    return { display: fallback, spoken: fallback };
+  }
+  if (opts.resuming) {
+    const resume = lessonModuleResumeIntro(title, nickname);
+    return { display: resume, spoken: resume };
+  }
+  return {
+    display: lessonModuleIntro(title, nickname),
+    spoken: lessonModuleIntroSpeech(
+      title,
+      nickname,
+      opts.practicePrompt || '',
+      opts.errorAnalysis,
+      opts.correction
+    ),
+  };
+}
+
+/**
+ * Spoken intro: same welcome PLUS the practice prompt, read aloud only.
+ * When the module carries the dedicated lesson pass's errorAnalysis (and its
+ * correction), Seren reads them right after the question so the learner hears
+ * WHY the sentence was wrong and how to say it — matching the on-screen card.
+ */
+export function lessonModuleIntroSpeech(
+  moduleTitle: string,
+  nickname: string,
+  practicePrompt: string,
+  errorAnalysis?: string,
+  correction?: string
+): string {
+  const analysis = (errorAnalysis || '').trim();
+  const fix = (correction || '').trim();
+  const analysisSpeech = analysis
+    ? ` ${analysis}${fix ? ` Say it as: ${fix}` : ''}`
+    : '';
+  return `${lessonModuleIntro(moduleTitle, nickname)} Here is your practice prompt: ${practicePrompt}${analysisSpeech}`;
 }
 
 /** Server — Casual chat greeting reply when the message is a simple hello/hi/hey. */

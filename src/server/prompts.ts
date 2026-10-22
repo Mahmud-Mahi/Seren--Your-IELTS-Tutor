@@ -29,12 +29,24 @@ Array length = number of input sentences, same order.`;
 // Pronunciation scan (shared by evaluate-speech and evaluate-practice)
 // ---------------------------------------------------------------------------
 
-export function buildPronunciationScanPrompt(question: string, transcript: string): string {
-  return `Find words in this answer that B1-C1 IELTS learners often mispronounce (stress, vowel quality, silent letters, -ed/-s endings, th/v/w sounds).
-For each: word (from the text only), ipa, phoneticSpelling, one-line tip, exampleSentence. Target 5-14 words.
+export function buildPronunciationScanPrompt(transcriptsBlock: string): string {
+  return `Review ALL of this learner's answers and pick ONLY the words that are genuinely hard to pronounce for B1-C1 IELTS learners.
 
-Q: "${question}"
-A: "${transcript}"`;
+SELECTION RUBRIC (a word must match at least one):
+- 3+ syllables with irregular/unpredictable stress (e.g. agricultural, unforgettable)
+- Deceptive spelling / silent letters (e.g. receipt, psychology, comb)
+- Tricky sound clusters: -ed/-s endings, th-, vowel length contrasts, /v/ vs /w/, /l/ vs /r/
+- Uncommon or topic-specific vocabulary the learner actually used (e.g. meteor, infrastructure)
+
+HARD EXCLUSIONS - never include:
+- Everyday high-frequency words (people, traffic, friends, road, water, government, think...) even if accented - they are not worth a coaching entry
+- Any word you cannot back with real IPA - if unsure, skip it
+
+Return AT MOST 8 entries for the WHOLE test, ranked by teaching value (hardest/most useful first). Returning fewer - or zero - is completely fine; never invent entries to fill a quota.
+Each word must appear VERBATIM in the transcripts below. For each: word, ipa, phoneticSpelling, one-line tip (the concrete fix), exampleSentence (a fresh IELTS-style sentence using the word).
+
+TRANSCRIPTS:
+${transcriptsBlock}`;
 }
 
 export const PRONUNCIATION_TIPS_SCHEMA = `{
@@ -65,7 +77,7 @@ SCORING RULES:
 2. Score from the transcript ONLY. Empty or near-empty parts get NO credit and pull the band toward 4.0; a near-empty test scores 4.0-5.0, never 7.0+, never the target band.
 3. Pillars (fluency, lexical, grammar, pronunciation): score, cefr, 2-3 strengths, 2-3 growthAreas, 1-2 sentence examinerCommentary in Seren's friendly-expert voice.
 4. upgradedExpressions: [] (separate pass). pronunciationTips: [] (separate pass).
-5. lessonRoadmap: exactly 4 modules. Each module targets ONE specific error the student actually made: set focusArea (the exact skill to fix, not a generic topic) and exampleError (quote one real sentence from the transcripts above that shows that error).`;
+5. priorityErrors: EXACTLY 3-5 entries = the MOST damaging REAL errors visible in THIS transcript (the raw material for the separate Custom-Lesson pass). Never invent errors the learner didn't make; quote their words VERBATIM.`;
 }
 
 export const EVALUATE_SPEECH_SCHEMA = `{
@@ -82,9 +94,8 @@ export const EVALUATE_SPEECH_SCHEMA = `{
   "upgradedExpressions": [],
   "pronunciationTips": [],
   "stats": { "totalWords": 145, "estimatedWPM": 115, "pauseFluencyRating": "Smooth|Moderate Pauses|Hesitant", "varietyRating": "High|Good|Repetitive" },
-  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "focusArea": "the ONE skill this lesson fixes", "exampleError": "one real sentence the student said that shows the error", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
-}
-(lessonRoadmap: exactly 4 modules)`;
+  "priorityErrors": [ { "category": "Grammar|Vocabulary|Fluency|Pronunciation", "quote": "verbatim learner sentence", "whyWrong": "the rule in one line", "fix": "corrected version" } ]
+}`;
 
 // ---------------------------------------------------------------------------
 // Interview-practice evaluation (JSON-based Cambridge practice questions)
@@ -112,7 +123,7 @@ SCORING RULES:
 2. Score from the ACTUAL answers ONLY; empty answers get NO credit.
 3. Pillars (fluency, lexical, grammar, pronunciation): score, cefr, 2-3 strengths, 2-3 growthAreas, 1-2 sentence examinerCommentary.
 4. upgradedExpressions: [] (built server-side from the model answer bank). pronunciationTips: [] (separate pass).
-5. lessonRoadmap: exactly 4 modules. Each module targets ONE specific error the student actually made: set focusArea (the exact skill to fix, not a generic topic) and exampleError (quote one real sentence from the answers above that shows that error).`;
+5. priorityErrors: EXACTLY 3-5 entries = the MOST damaging REAL errors visible in THESE answers (the raw material for the separate Custom-Lesson pass). Never invent errors the learner didn't make; quote their words VERBATIM.`;
 }
 
 export const INTERVIEW_PRACTICE_SCHEMA = `{
@@ -129,9 +140,8 @@ export const INTERVIEW_PRACTICE_SCHEMA = `{
   "upgradedExpressions": [],
   "pronunciationTips": [],
   "stats": { "totalWords": 100, "estimatedWPM": 110, "pauseFluencyRating": "Smooth|Moderate Pauses|Hesitant", "varietyRating": "High|Good|Repetitive" },
-  "lessonRoadmap": [ { "id": "module-1", "title": "...", "level": "Band 7.0-8.5", "category": "Fluency|Vocabulary|Grammar|Part 2 Cue Card|Pronunciation|Examiner Strategy", "duration": "15 Mins", "description": "...", "focusArea": "the ONE skill this lesson fixes", "exampleError": "one real sentence the student said that shows the error", "objectives": ["..."], "practiceDrill": { "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam", "prompt": "...", "modelBand9Sample": "...", "tips": ["..."] } } ]
-}
-(lessonRoadmap: exactly 4 modules)`;
+  "priorityErrors": [ { "category": "Grammar|Vocabulary|Fluency|Pronunciation", "quote": "verbatim learner sentence", "whyWrong": "the rule in one line", "fix": "corrected version" } ]
+}`;
 // ---------------------------------------------------------------------------
 // Interactive Seren chat / speaking session (incl. Lesson Practice mode)
 // ---------------------------------------------------------------------------
@@ -204,6 +214,120 @@ export const SEREN_CHAT_SCHEMA = `{
 }`;
 
 // ---------------------------------------------------------------------------
+// Dedicated Custom-Lesson roadmap pass
+//
+// The roadmap used to be squeezed into the scoring prompt, which diluted BOTH
+// the score AND the drills (models emitted generic textbook exercises instead
+// of fixing the learner's real mistakes). It now runs as its OWN call with the
+// transcripts + the examiner's priority errors, so every module quotes the
+// learner's own sentences and ships "fix this sentence" exercises built from
+// them.
+// ---------------------------------------------------------------------------
+
+export function buildLessonRoadmapPrompt(p: {
+  userProfile: any;
+  pillarsDigest: string;
+  priorityErrorsBlock: string;
+  transcriptsBlock: string;
+}): string {
+  const { userProfile, pillarsDigest, priorityErrorsBlock, transcriptsBlock } = p;
+  return `Design up to 4 Custom-Lesson modules for this IELTS Speaking learner. Create a module ONLY when the evidence contains a genuine, teachable learner error.
+
+PROFILE: ${userProfile?.nickname || 'Learner'} | goal: ${userProfile?.goal || 'IELTS Speaking'} | target: Band ${userProfile?.targetBand || '7.5'}
+
+PILLARS (score + top growth areas):
+${pillarsDigest}
+
+PRIORITY ERRORS (from the examiner pass):
+${priorityErrorsBlock}
+
+TRANSCRIPTS (the learner's own words):
+${transcriptsBlock}
+
+ROADMAP RULES:
+1. Return between 1 and 4 modules, one per distinct, high-impact REAL error. If there are no genuine errors, return an empty lessonRoadmap. Never create a module merely to reach a quota.
+2. Ground every module in the learner's OWN sentences:
+  - exampleError: a VERBATIM quote from a real error in the transcript or priorityErrors
+  - errorAnalysis: why that exact quote is wrong
+  - correction: a minimal, accurate correction preserving the learner's meaning
+3. practiceDrill.exerciseItems MUST include the module's exampleError verbatim and its correction. Add only other distinct real errors from the evidence. Do not include correct sentences, stylistic upgrades, or fabricated examples as mistakes.
+4. The FIRST learner activity is fixing the displayed mistake: practiceDrill.prompt must tell the learner to say the corrected version of the shown sentence, then make one new sentence using the same rule. It must reference the displayed example, never unseen examples.
+5. Only after that error-correction activity, include transferQuestion: one natural IELTS-style speaking question that gives the learner a chance to use the same correction in a fresh answer. The transfer question is secondary practice, not a replacement for the mistake.
+6. modelBand9Sample answers transferQuestion. objectives: 3 short bullets. tips: 3 concrete techniques for noticing and correcting this exact error in spontaneous speech.`;
+}
+
+export const LESSON_ROADMAP_SCHEMA = `{
+  "lessonRoadmap": [
+    {
+      "id": "module-1",
+      "title": "Concise Skill-Drill Title",
+      "level": "Band X.Y-Z.W",
+      "category": "Grammar|Vocabulary|Fluency|Pronunciation|Part 2 Cue Card|Examiner Strategy",
+      "duration": "10-20 Mins",
+      "description": "one sentence",
+      "focusArea": "ONE micro-skill this lesson fixes",
+      "exampleError": "verbatim learner sentence showing the error",
+      "errorAnalysis": "why it's wrong - the rule in 1-2 sentences",
+      "correction": "the corrected sentence",
+      "objectives": ["3 short bullets"],
+      "practiceDrill": {
+        "type": "rapid_fire|cue_card|lexical_boost|shadowing|mock_exam",
+        "prompt": "say the displayed correction aloud, then make a new sentence using the rule",
+        "exerciseItems": [ { "faulty": "required verbatim learner mistake", "correction": "minimal fixed version", "note": "why it was wrong" } ],
+        "transferQuestion": "one natural IELTS-style question for applying the correction",
+        "modelBand9Sample": "natural spoken answer to transferQuestion",
+        "tips": ["3 concrete technique bullets"]
+      }
+    }
+  ]
+}
+Return 0-4 modules. Every "faulty" / "exampleError" string must be a verbatim quote from the transcript or a priority error.`;
+
+const NON_SPEAKING_TASK_PATTERN = /\b(?:complete\s+(?:\d+\s+)?sentences?|fill\s+in\s+(?:the\s+)?blanks?|read\s+each\s+sentence|spot\s+the\s+error|identify\s+the\s+error|correct\s+each\s+sentence|rewrite\s+each\s+sentence|state\s+the\s+rule|choose\s+the\s+correct)\b/i;
+
+export function isUsableSpeakingQuestion(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const question = value.trim();
+  const questionMarks = question.match(/\?/g) || [];
+  return (
+    question.length >= 12 &&
+    question.length <= 320 &&
+    questionMarks.length === 1 &&
+    question.endsWith('?') &&
+    !NON_SPEAKING_TASK_PATTERN.test(question)
+  );
+}
+
+/**
+ * Lesson replies are 2-4 coaching sentences that END with one spoken question,
+ * so validating the WHOLE reply with isUsableSpeakingQuestion() rejects almost
+ * every real reply (multi-sentence, often >320 chars) and forces the same
+ * deterministic fallback text every round — which the client's speech dedup
+ * then swallows. Only the trailing question sentence must be usable.
+ */
+export function endsWithUsableSpeakingQuestion(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const reply = value.trim();
+  if (!reply.endsWith('?')) return false;
+  const lastBreak = Math.max(
+    reply.lastIndexOf('. '),
+    reply.lastIndexOf('! '),
+    reply.lastIndexOf('? '),
+    reply.lastIndexOf('\n')
+  );
+  const trailingQuestion = lastBreak === -1 ? reply : reply.slice(lastBreak + 2);
+  return isUsableSpeakingQuestion(trailingQuestion);
+}
+
+// NOTE: the "is this module a grounded mistake?" check used to live here as
+// isGroundedMistakeModule(). It now lives in src/server/lessonRoadmap.ts as
+// validateLessonModule(), because validation must run AFTER the deterministic
+// repair — and because a second, divergent validator is exactly how modules
+// used to be rejected wholesale. Kept out of this file on purpose: prompt
+// text and prompt-only helpers live here, lesson logic lives with the
+// lesson-roadmap module.
+
+// ---------------------------------------------------------------------------
 // Lesson drill generator
 // ---------------------------------------------------------------------------
 
@@ -255,6 +379,8 @@ export function buildLessonChatPrompt(p: {
   const errorLine = ctx.exampleError
     ? `\n- The error we are fixing, from THEIR own words: "${ctx.exampleError}"`
     : '';
+  const analysisLine = ctx.errorAnalysis ? `\n- Why it is wrong (the rule): ${ctx.errorAnalysis}` : '';
+  const correctionLine = ctx.correction ? `\n- The corrected version to steer toward: "${ctx.correction}"` : '';
   const objectives = (ctx.objectives || []).map((o: string) => `  • ${o}`).join('\n');
   const tips = (ctx.tips || []).map((t: string) => `  • ${t}`).join('\n');
   const isFinalRound = followUpIndex >= LESSON_MAX_FOLLOW_UPS;
@@ -262,7 +388,7 @@ export function buildLessonChatPrompt(p: {
   return `Focused Custom Lesson: ${ctx.title || 'Speaking drill'} | ${ctx.category || 'Speaking'} | learner: ${ctx.nickname || 'Learner'} | target Band ${ctx.targetBand || '7.5'} | current band ${ctx.currentBand || '—'}
 
 LESSON FOCUS — stay on THIS ONE skill only:
-- Skill: ${focus}${errorLine}
+- Skill: ${focus}${errorLine}${analysisLine}${correctionLine}
 - Objectives:
 ${objectives || '  • Fix the error above'}
 - Drill tips:
@@ -273,11 +399,14 @@ ROUND: follow-up #${followUpIndex} of max ${LESSON_MAX_FOLLOW_UPS}.${isFinalRoun
 
 TASK:
 - Reply in 2-4 sentences, warm and natural.
-- Quote the learner's exact phrase that missed the band, then give ONE Band 8.5 reframe (it goes in feedback.correctedSentence).
-- Every follow-up must make them RE-SAY their answer using the fix — a drill, not a chat. Go one layer deeper each round; never repeat earlier advice.
+- When there is a real error in this lesson's focus, quote the learner's exact phrase and give ONE concise reframe (it goes in feedback.correctedSentence). If there is no such error, do not manufacture one.
+- If their answer contains no error in this lesson's focus, do not invent one. Praise the accurate use briefly and give one specific next challenge.
+- End with exactly ONE natural, open-ended IELTS-style speaking question they can answer aloud in 30-60 seconds. The question must give them another chance to use this lesson's focus and relate naturally to the current topic.
+- Never ask them to complete a worksheet, list sentences, identify an error, state a grammar rule, or repeat an answer mechanically. Do not use meta-instructions as the follow-up question.
+- Go one layer deeper each round; never repeat earlier advice or switch away from the lesson focus.
 - Stay on ${focus}. Never pivot topics, never add a second skill, never give generic advice.
 - mood describes Seren RIGHT AFTER her reply: 'speaking' normally, 'encouraging' if they struggled, 'celebrating' when the fix lands. NEVER use 'listening'.
-- From round 3 on: if their latest answer already lands the fix, stop early — celebrate it, set lessonComplete to true and fill summary instead of asking another question.${isFinalRound ? `\n- FINAL ROUND: do NOT ask any question. Write a 2-4 sentence wrap-up, set lessonComplete to true and fill summary.improved (what concretely got better across the rounds) + summary.toTargetBand (the 2-3 fixes still needed to reach Band ${ctx.targetBand || '7.5'}).` : '\n- End your reply with ONE short follow-up question that drills the SAME fix.'}
+- From round 3 on: if their latest answer already lands the fix, stop early — celebrate it, set lessonComplete to true and fill summary instead of asking another question.${isFinalRound ? `\n- FINAL ROUND: do NOT ask any question. Write a 2-4 sentence wrap-up, set lessonComplete to true and fill summary.improved (what concretely got better across the rounds) + summary.toTargetBand (the 2-3 fixes still needed to reach Band ${ctx.targetBand || '7.5'}).` : '\n- End your reply with exactly ONE natural spoken question that gives them another chance to use the SAME fix.'}
 
 CHAT (last 6):
 ${chatTail}

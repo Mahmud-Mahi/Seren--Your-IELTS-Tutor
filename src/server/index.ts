@@ -5,7 +5,7 @@ import type { Socket } from 'net';
 import { registerRoutes } from './routes';
 import { getProviders, EXCLUDED_FROM_AUTO_CASCADE } from './llm';
 import { ttsEnabled } from './config';
-import { defaultTtsVoice } from './tts';
+import { defaultTtsVoice, closeAllTtsConnections } from './tts';
 import { whisperSTT } from './whisper';
 
 /**
@@ -129,6 +129,10 @@ async function startServer() {
     console.log(`\n${signal} received — stopping Seren and releasing port ${PORT}…`);
     try {
       void viteInstance?.close();
+    } catch (e) {}
+    // Release the pooled Edge TTS sockets so the process can exit cleanly.
+    try {
+      closeAllTtsConnections();
     } catch (e) {}
     for (const socket of openSockets) socket.destroy();
     server.close(() => {

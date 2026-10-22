@@ -62,8 +62,19 @@ function persist(plans: SavedLessonPlan[]): void {
 
 /**
  * Store the roadmap of a freshly completed evaluation (if not already stored).
- * Returns the updated plan list (newest first). Completion tick marks already
- * recorded on an existing plan are never reset by a duplicate save.
+ *
+ * A lesson plan is identified by the TEST it came from (source + testId), so
+ * a regeneration of the same test REPLACES that plan in place instead of
+ * adding a second, near-identical entry:
+ *  - the EXISTING entry keeps its id and its position in the list, so the
+ *    learner's per-module tick marks (completed / completedAt / score) are
+ *    carried over for every module whose id still exists;
+ *  - the module CONTENT is refreshed, so a retry that produced better or
+ *    repaired modules actually shows up instead of leaving stale lessons;
+ *  - plans without a testId (legacy entries) are matched by their content
+ *    fingerprint instead, so the list never grows duplicates.
+ *
+ * Returns the updated plan list (newest first).
  */
 export function saveLessonPlan(
   evaluation: SpeakingEvaluation,
@@ -75,9 +86,36 @@ export function saveLessonPlan(
   const fingerprint = lessonPlanFingerprint(modules);
   const plans = loadLessonHistory();
 
-  // Same roadmap already stored (e.g. jumping back to an old report) — keep
-  // the original entry, including its tick marks.
-  if (plans.some((p) => p.fingerprint === fingerprint)) return plans;
+  // Identity: the test this plan belongs to. Fall back to the content
+  // fingerprint for legacy plans that carry no testId.
+  const existingIndex = opts.testId
+    ? plans.findIndex(
+        (p) => p.testId === opts.testId && p.source === opts.source
+      )
+    : plans.findIndex((p) => p.fingerprint === fingerprint);
+  const fallbackIndex =
+    existingIndex === -1 ? plans.findIndex((p) => p.fingerprint === fingerprint) : -1;
+  const targetIndex = existingIndex !== -1 ? existingIndex : fallbackIndex;
+
+  if (targetIndex !== -1) {
+    // Same lessons already stored — update them in place, keeping the ticks.
+    const existing = plans[targetIndex];
+    const previousById = new Map(existing.modules.map((m) => [m.id, m]));
+    const merged = modules.map((m) => {
+      const previous = previousById.get(m.id);
+      if (!previous) return m;
+      // Keep the learner's completion state; take the fresh content.
+      return {
+        ...m,
+        ...(previous.completed ? { completed: true, completedAt: previous.completedAt } : {}),
+        ...(typeof previous.score === 'number' ? { score: previous.score } : {}),
+      };
+    });
+    const next = [...plans];
+    next[targetIndex] = { ...existing, modules: merged, fingerprint };
+    persist(next);
+    return next;
+  }
 
   const entry: SavedLessonPlan = {
     id: `lessons-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

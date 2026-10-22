@@ -21,6 +21,12 @@ import {
 } from 'lucide-react';
 import { LessonRoadmapModule, UserProfile, SpeakingEvaluation, SerenMood, SavedLessonPlan } from '../types';
 import { lessonPlanFingerprint } from '../utils/lessonHistory';
+import {
+  loadLessonSessionInit,
+  loadLessonSession,
+  saveLessonSession,
+  type LessonSessionInit,
+} from '../autosave';
 import { SerenAvatar } from './SerenAvatar';
 import { ScrollArea } from './ScrollArea';
 import { MicEqualizer } from './MicEqualizer';
@@ -28,7 +34,7 @@ import { serenVoice, soundFX, activeAudioRecorder, transcribeAudio } from '../ut
 import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/serenMood';
 import { useShortcut, useShortcutHint } from '../hooks/useShortcut';
 import confetti from 'canvas-confetti';
-import { lessonModuleIntro, lessonModuleIntroSpeech } from '../utils/greetings';
+import { lessonModuleGreeting } from '../utils/greetings';
 
 interface LessonStudioProps {
   evaluation: SpeakingEvaluation;
@@ -39,6 +45,13 @@ interface LessonStudioProps {
   // test / practice session, newest first. Tick marks persist in the store.
   lessonPlans: SavedLessonPlan[];
   onMarkLessonComplete: (planId: string, moduleId: string) => void;
+  // Rebuild ONLY the lesson roadmap from the answers already on record.
+  // Used when the lesson pass of an evaluation degraded (rate limit etc.).
+  onRegenerateLessons?: () => Promise<boolean>;
+  isRegeneratingLessons?: boolean;
+  lessonRegenError?: string | null;
+  // Take the learner back to the diagnostic to produce a fresh report.
+  onNavigateToDiagnostic?: () => void;
 }
 
 const LESSON_SCROLL_HEIGHT_KEY = 'seren_lesson_scroll_height';
@@ -59,6 +72,10 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   onToggleVoice,
   lessonPlans,
   onMarkLessonComplete,
+  onRegenerateLessons,
+  isRegeneratingLessons = false,
+  lessonRegenError = null,
+  onNavigateToDiagnostic,
 }) => {
   // Lesson plans shown in the sidebar: the persisted history of all tests
   // (newest first). Fallback: if the store is somehow empty (e.g. the active
@@ -80,14 +97,29 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           ]
         : [];
 
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(plans[0]?.id || '');
+  // Autosaved session resume: if the user left mid-lesson (e.g. after 2
+  // follow-ups), the last-open module + its rounds are validated against the
+  // current plans and used as this mount's initial state. Lazy init runs once.
+  const [restoredSession] = useState<LessonSessionInit | null>(() => {
+    try {
+      return loadLessonSessionInit(plans);
+    } catch {
+      return null;
+    }
+  });
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(
+    restoredSession?.planId || plans[0]?.id || ''
+  );
   const [selectedModule, setSelectedModule] = useState<LessonRoadmapModule>(
-    plans[0]?.modules?.[0] || ({} as LessonRoadmapModule)
+    restoredSession?.module || plans[0]?.modules?.[0] || ({} as LessonRoadmapModule)
   );
   // Optimistic tick marks for completions not yet reflected by the store
   // (covers the non-persisted fallback plan above).
-  const [localCompleted, setLocalCompleted] = useState<Record<string, boolean>>({});
-  const [userSpokenText, setUserSpokenText] = useState('');
+  const [localCompleted, setLocalCompleted] = useState<Record<string, boolean>>(
+    restoredSession?.localCompleted || {}
+  );
+  const [userSpokenText, setUserSpokenText] = useState(restoredSession?.userSpokenText || '');
   const [isRecording, setIsRecording] = useState(false);
   const [isEvaluatingDrill, setIsEvaluatingDrill] = useState(false);
   // Whisper transcription: while true the just-stopped recording is being
@@ -96,16 +128,22 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // Real-time drill feedback history: every round (the initial drill check PLUS
   // any follow-up reply feedback) is kept, newest appended last, and shown in
   // the scrollable feedback area — original answer + Band 8/8.5 phrasing each.
-  const [feedbackHistory, setFeedbackHistory] = useState<any[]>([]);
+  const [feedbackHistory, setFeedbackHistory] = useState<any[]>(restoredSession?.feedbackHistory || []);
   // Bounded lesson arc: the initial drill feedback + at most MAX_FOLLOW_UPS
   // follow-up rounds, then a wrap-up summary and the module is marked done.
   // The server enforces the same cap — this mirrors it on the client.
   const MAX_FOLLOW_UPS = 5;
-  const [followUpCount, setFollowUpCount] = useState(0);
+  const [followUpCount, setFollowUpCount] = useState(restoredSession?.followUpCount || 0);
+  // Synchronous in-flight guards: `isEvaluatingDrill` / `isSubmittingReply`
+  // only disable the button AFTER a re-render, so a fast double-click could
+  // fire /api/seren-chat twice for the same answer — the second (error
+  // fallback) reply would then overwrite the real evaluation in the panel.
+  const drillRequestInFlight = useRef(false);
+  const replyRequestInFlight = useRef(false);
   const [lessonSummary, setLessonSummary] = useState<{
     improved: string[];
     toTargetBand: string[];
-  } | null>(null);
+  } | null>(restoredSession?.lessonSummary || null);
   // Central mood state machine (src/utils/serenMood.ts) — 'listening' is
   // mic-driven only; see useMicMoodSync below.
   const [serenMood, setSerenMood] = useSerenMood();
@@ -172,14 +210,17 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  const [conversationHistory, setConversationHistory] = useState<any[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<any[]>(
+    restoredSession?.conversationHistory || []
+  );
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
-  // Keep the feedback scroll area pinned to the newest round whenever the
-  // initial drill feedback or a follow-up reply feedback is appended.
-  const feedbackScrollRef = useRef<HTMLDivElement>(null);
+  // Single scroll region: pin the main Practice Stage scroll area to the
+  // newest round whenever drill or follow-up feedback is appended. The
+  // feedback panel renders inline — there is no nested scroll area.
+  const stageScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    feedbackScrollRef.current?.scrollTo({
-      top: feedbackScrollRef.current.scrollHeight,
+    stageScrollRef.current?.scrollTo({
+      top: stageScrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
   }, [feedbackHistory.length]);
@@ -192,23 +233,107 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   }, []);
 
   // When selected module changes
+  // Resume guard: on the first run after an autosave resume the state
+  // initializers already carry the saved rounds for this module, so the wipe
+  // below must not clear them. Guard is single-shot (later module switches
+  // always reset, per-module autosaves preserve each module separately).
+  const resumeGuardRef = useRef<string | null>(
+    restoredSession ? `${restoredSession.planId}::${restoredSession.module.id}` : null
+  );
+  // Same commit as a module switch: the autosave effect below still sees the
+  // previous module's state, so it must skip that one write (the resets from
+  // that same switch save the fresh state on the next commit).
+  const skipNextSaveRef = useRef(false);
   useEffect(() => {
-    setUserSpokenText('');
-    setFeedbackHistory([]);
-    setFollowUpCount(0);
-    setLessonSummary(null);
-    setConversationHistory([]);
+    const resumeKey = resumeGuardRef.current;
+    resumeGuardRef.current = null;
+    // Matches this render's module → it IS the resumed one: keep everything
+    // (user continues from the reply box exactly where they left off).
+    //
+    // The ROUND STATE is kept, but Seren must still say hello: skipping the
+    // greeting entirely left her mute in the "greeting" mood with no dialogue
+    // bubble at all, which looked like a broken app on every visit after the
+    // first one. She now gets a short "welcome back" line instead.
+    if (resumeKey && selectedModule?.id && resumeKey === `${selectedPlanId}::${selectedModule.id}`) {
+      // This is the module the app was last open on. Two cases:
+      //
+      //  • REAL work to pick up  → a genuine RESUME: keep the restored rounds
+      //    and greet the learner briefly ("Welcome back …").
+      //
+      //  • NOTHING done yet  → the autosave merely left an empty record
+      //    behind when the tab was opened, so this is really a FRESH lesson:
+      //    Seren uses the first-time welcome and READS the drill prompt, the
+      //    error analysis and the corrected sentence aloud — exactly like the
+      //    web app. The desktop app used to say only "Welcome back …" here
+      //    (because its localStorage survives restarts, so the empty record
+      //    was always found), which is why the two apps behaved differently.
+      const isGenuineResume = restoredSession?.hasContent === true;
+      const greeting = lessonModuleGreeting({
+        moduleTitle: selectedModule?.title || '',
+        nickname: userProfile.nickname,
+        practicePrompt: selectedModule?.practiceDrill?.prompt || '',
+        errorAnalysis: selectedModule?.errorAnalysis || '',
+        correction: selectedModule?.correction || '',
+        resuming: isGenuineResume,
+      });
+      saySeren(greeting.display, greeting.spoken);
+      setSerenMood('speaking');
+      return;
+    }
+    // Genuine switch: the resets below queue a re-render, but the autosave
+    // effect declared after this one still sees the PREVIOUS module's state in
+    // this same commit. Flag it so that stale snapshot is never stored under
+    // the new module's key; the fresh (reset) state is saved right after.
+    skipNextSaveRef.current = true;
+    // RESTORE the clicked module's saved session instead of wiping to empty —
+    // wiping here used to overwrite finished lessons' saved transcripts
+    // (answers + follow-ups + summary) with empty state via the autosave.
+    const saved = loadLessonSession(selectedPlanId, selectedModule.id);
+    setUserSpokenText(saved?.userSpokenText || '');
+    setFeedbackHistory(saved?.feedbackHistory || []);
+    setFollowUpCount(saved?.followUpCount || 0);
+    setLessonSummary(saved?.lessonSummary || null);
+    setConversationHistory(saved?.conversationHistory || []);
+    // Completion ticks accumulate per plan:module across the whole session, so
+    // the in-memory map always wins over the (possibly older) snapshot copy.
+    if (saved?.localCompleted) {
+      setLocalCompleted((prev) => ({ ...saved.localCompleted, ...prev }));
+    }
     setIsRecording(false);
     void activeAudioRecorder.stop().catch(() => {});
 
     if (selectedModule?.title) {
-      const intro = lessonModuleIntro(selectedModule.title, userProfile.nickname);
-      // Show ONLY the welcome in Seren's box, but READ the practice prompt aloud.
-      const introSpoken = lessonModuleIntroSpeech(selectedModule.title, userProfile.nickname, selectedModule.practiceDrill.prompt);
-      saySeren(intro, introSpoken);
+      // Show ONLY the welcome in Seren's box, but READ the practice prompt —
+      // plus the error analysis & correction — aloud.
+      const greeting = lessonModuleGreeting({
+        moduleTitle: selectedModule.title,
+        nickname: userProfile.nickname,
+        practicePrompt: selectedModule?.practiceDrill?.prompt || '',
+        errorAnalysis: selectedModule?.errorAnalysis || '',
+        correction: selectedModule?.correction || '',
+      });
+      saySeren(greeting.display, greeting.spoken);
       setSerenMood('speaking');
     }
   }, [selectedModule, userProfile.nickname]);
+
+  // Autosave the in-progress lesson on EVERY interaction (rounds, drafts,
+  // summary, ticks) under this module's slot — reopening resumes mid-arc.
+  useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    if (!selectedPlanId || !selectedModule?.id) return;
+    saveLessonSession(selectedPlanId, selectedModule.id, {
+      feedbackHistory,
+      followUpCount,
+      conversationHistory,
+      lessonSummary,
+      userSpokenText,
+      localCompleted,
+    });
+  }, [selectedPlanId, selectedModule, feedbackHistory, followUpCount, conversationHistory, lessonSummary, userSpokenText, localCompleted]);
 
   const handleSelectModule = (planId: string, mod: LessonRoadmapModule) => {
     soundFX.playChime('start');
@@ -281,7 +406,6 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     setSerenMood('speaking');
     saySeren(selectedModule.practiceDrill.modelBand9Sample);
   };
-
   // Ground every AI call in THIS module's ONE skill + the student's real error
   // so the session stays laser-focused instead of generic.
   const buildLessonContext = () => ({
@@ -290,6 +414,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     category: selectedModule?.category || '',
     focusArea: selectedModule?.focusArea || selectedModule?.objectives?.[0] || selectedModule?.title || '',
     exampleError: selectedModule?.exampleError || '',
+    errorAnalysis: selectedModule?.errorAnalysis || '',
+    correction: selectedModule?.correction || '',
     objectives: selectedModule?.objectives || [],
     drillPrompt: selectedModule?.practiceDrill?.prompt || '',
     tips: selectedModule?.practiceDrill?.tips || [],
@@ -344,7 +470,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   };
 
   const handleSubmitDrillAnswer = async () => {
-    if (!userSpokenText.trim()) return;
+    if (!userSpokenText.trim() || drillRequestInFlight.current) return;
+    drillRequestInFlight.current = true;
     setIsRecording(false);
     // Release the native mic capture too (Whisper transcription may not have run
     // if the user submitted straight from the listening state).
@@ -353,7 +480,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     setSerenMood('evaluating');
     saySeren(`Analyzing your practice response...`);
 
-    const userMsg = `Drill topic: "${selectedModule.practiceDrill.prompt}". My answer: "${userSpokenText}"`;
+    const userMsg = `Drill topic: "${selectedModule?.practiceDrill?.prompt || selectedModule?.focusArea || 'this speaking skill'}". My answer: "${userSpokenText}"`;
 
     try {
       const res = await fetch('/api/seren-chat', {
@@ -374,6 +501,19 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setIsEvaluatingDrill(false);
 
       if (data.success && data.reply) {
+        // Server-flagged error fallback (LLM failed): re-ask only — never
+        // append fabricated feedback or advance the lesson arc with it.
+        // Exception: the server's final-round backstop still wraps the lesson
+        // up honestly with its deterministic summary.
+        if (data.reply.fallback) {
+          setSerenMood('encouraging');
+          saySeren(data.reply.replyText);
+          if (data.reply.lessonComplete) {
+            setFollowUpCount((c) => c + 1);
+            completeLesson(data.reply.summary);
+          }
+          return;
+        }
         setFeedbackHistory((prev) => [
           ...prev,
           { ...data.reply.feedback, originalAnswer: userSpokenText },
@@ -414,11 +554,14 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
         },
       ]);
       soundFX.playChime('success');
+    } finally {
+      drillRequestInFlight.current = false;
     }
   };
 
   const handleReplyToSeren = async () => {
-    if (!userSpokenText.trim()) return;
+    if (!userSpokenText.trim() || replyRequestInFlight.current) return;
+    replyRequestInFlight.current = true;
     setIsRecording(false);
     setIsSubmittingReply(true);
     saySeren('');
@@ -445,6 +588,20 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setIsSubmittingReply(false);
 
       if (data.success && data.reply) {
+        // Server-flagged error fallback (LLM failed): show Seren's re-ask only.
+        // Don't append fabricated feedback, don't record it in the transcript,
+        // and don't advance the round — the same followUpIndex stays live so
+        // the next attempt gets a real evaluation. Exception: the server's
+        // final-round backstop still wraps the lesson up with its summary.
+        if (data.reply.fallback) {
+          setSerenMood('encouraging');
+          saySeren(data.reply.replyText);
+          if (data.reply.lessonComplete) {
+            setFollowUpCount((c) => c + 1);
+            completeLesson(data.reply.summary);
+          }
+          return;
+        }
         setSerenMood(normalizeReplyMood(data.reply.mood) || 'speaking');
         saySeren(data.reply.replyText);
         soundFX.playChime('success');
@@ -483,6 +640,8 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
     } catch (e) {
       setIsSubmittingReply(false);
       saySeren("I had trouble sending that reply. Let's try once more.");
+    } finally {
+      replyRequestInFlight.current = false;
     }
   };
 
@@ -526,6 +685,58 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Empty roadmap — the lesson pass degraded (rate limit / provider
+          hiccup) or the learner never took a test. The screen must never
+          crash on a missing module: offer a way forward instead. */}
+      {totalLessons === 0 && (
+        <div className="p-6 sm:p-8 rounded-3xl bg-[#282a36] border border-[#44475a] shadow-2xl text-center space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-[#bd93f9]/15 border border-[#bd93f9]/40 flex items-center justify-center">
+            <BookOpen className="w-7 h-7 text-[#bd93f9]" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-bold text-[#f8f8f2]">No lessons yet</h3>
+            <p className="text-sm text-[#6272a4] max-w-md mx-auto leading-relaxed">
+              {evaluation.degradation?.lessonsFailed
+                ? "Seren couldn't build your lesson roadmap for this attempt. Your report is still here — you can rebuild the lessons from the same answers."
+                : 'Take the Cambridge diagnostic and Seren will build a personalized drill roadmap from the mistakes you actually make.'}
+            </p>
+          </div>
+          {lessonRegenError && (
+            <p className="text-xs text-[#ff5555] bg-[#ff5555]/10 border border-[#ff5555]/40 rounded-xl px-3 py-2 inline-block">
+              {lessonRegenError}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {onRegenerateLessons && (
+              <button
+                id="regenerate-lessons-btn"
+                type="button"
+                disabled={isRegeneratingLessons}
+                onClick={() => void onRegenerateLessons()}
+                className="px-4 py-2.5 rounded-xl bg-[#bd93f9] hover:bg-[#bd93f9]/90 disabled:opacity-60 text-[#282a36] font-bold text-xs flex items-center gap-1.5 transition-colors"
+              >
+                {isRegeneratingLessons ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span>{isRegeneratingLessons ? 'Building your lessons…' : 'Build my lessons'}</span>
+              </button>
+            )}
+            {onNavigateToDiagnostic && (
+              <button
+                id="go-diagnostic-btn"
+                type="button"
+                onClick={onNavigateToDiagnostic}
+                className="px-4 py-2.5 rounded-xl border border-[#44475a] bg-[#282a36] hover:bg-[#44475a] text-[#f8f8f2] text-xs font-medium transition-colors"
+              >
+                Take the diagnostic
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Grid: Modules list + Active Drill Workspace */}
       <div className="relative grid grid-cols-1 gap-6">
@@ -708,6 +919,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     </span>
                   </div>
                 <ScrollArea
+                  ref={stageScrollRef}
                   className={`${scrollAreaHeight === null ? 'max-h-[calc(100dvh-22rem)]' : 'max-h-none'} min-h-[220px] pr-2 pb-2`}
                   style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}
                 >
@@ -716,9 +928,45 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                   <span className="text-[10px] uppercase font-bold text-[#bd93f9] tracking-wider">
                     Interactive Drill Prompt:
                   </span>
-                  <p className="text-[#f8f8f2] font-semibold text-sm">
+                  <p className="text-[#f8f8f2] font-semibold text-base">
                     "{selectedModule.practiceDrill?.prompt}"
                   </p>
+                  {selectedModule.exampleError && (
+                    <p className="text-xs sm:text-sm text-[#ff79c6] leading-relaxed">
+                      From your answer: <span className="italic">"{selectedModule.exampleError}"</span>
+                    </p>
+                  )}
+                  {/* The rule + corrected sentence (from the dedicated lesson pass) */}
+                  {selectedModule.errorAnalysis && (
+                    <p className="text-xs sm:text-sm text-[#8be9fd] leading-relaxed">
+                      {selectedModule.errorAnalysis}
+                      {selectedModule.correction && (
+                        <>{' '}— say it as <em className="not-italic font-semibold text-[#50fa7b]">"{selectedModule.correction}"</em></>
+                      )}
+                    </p>
+                  )}
+                  {/* Fix Your Own Sentences — exercises quoted verbatim from the
+                      learner's transcript (built by the dedicated lesson pass) */}
+                  {(selectedModule.practiceDrill?.exerciseItems?.length ?? 0) > 0 && (
+                    <div className="pt-2 border-t border-[#44475a] space-y-2">
+                      <span className="text-[11px] font-semibold text-[#50fa7b] flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Fix Your Own Sentences:
+                      </span>
+                      <ul className="space-y-2">
+                        {selectedModule.practiceDrill.exerciseItems?.map((item, idx) => (
+                          <li key={`ex-${idx}`} className="p-2.5 rounded-xl bg-[#21222c] border border-[#44475a] space-y-1">
+                            <p className="text-[#ff79c6] text-xs sm:text-sm leading-relaxed">
+                              <span className="font-bold">✕ </span>"{item.faulty}"
+                            </p>
+                            <p className="text-[#50fa7b] text-xs sm:text-sm leading-relaxed">
+                              <span className="font-bold">✓ </span>"{item.correction}"
+                            </p>
+                            {item.note && <p className="text-[10px] text-[#6272a4]">{item.note}</p>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {selectedModule.practiceDrill?.tips && selectedModule.practiceDrill.tips.length > 0 && (
                     <div className="pt-2 border-t border-[#44475a] space-y-1">
                       <span className="text-[11px] font-semibold text-[#ffb86c] flex items-center gap-1">
@@ -871,13 +1119,12 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     )}
                   </div>
 
-                  {/* Scroll area: every round of feedback, from the initial
-                      drill attempt to the final follow-up, is kept here with
-                      the original answer and Band 8/8.5 phrasing. */}
-                  <ScrollArea
-                    ref={feedbackScrollRef}
-                    className="max-h-[55vh] pr-2 space-y-4"
-                  >
+                  {/* Feedback rounds render inline in the main scroll area —
+                      from the initial drill attempt to the final follow-up,
+                      each with the original answer and Band 8/8.5 phrasing.
+                      No nested scroll area: the stage ScrollArea above is the
+                      only scroller. */}
+                  <div className="space-y-4 pr-2">
                     {feedbackHistory.map((fb, idx) => (
                       <div key={idx} className="space-y-3">
                         {idx > 0 && (
@@ -943,7 +1190,7 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                         )}
                       </div>
                     ))}
-                  </ScrollArea>
+                  </div>
 
                   </motion.div>
               )}

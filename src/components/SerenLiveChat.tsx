@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic,
@@ -24,7 +24,14 @@ import { useSerenMood, useMicMoodSync, normalizeReplyMood } from '../utils/seren
 import { buildPart1QuestionSet, type IELTSPart1Question } from '../data/ieltsQuestionsP1';
 import { asInterviewSteps } from '../data/part0Intro';
 import { SEREN_PROFILE_IMAGE, USER_AVATAR_IMAGE } from '../assets/characterAssets';
-import { loadMessagesByMode, saveMessagesByMode, loadInterviewSession, saveInterviewSession } from '../utils/chatHistory';
+import {
+  loadMessagesByMode,
+  saveMessagesByMode,
+  loadInterviewSession,
+  saveInterviewSession,
+  subscribeToChatHistory,
+} from '../utils/chatHistory';
+import { loadChatDrafts, saveChatDraftForMode, type ChatDraftMode } from '../autosave';
 import {
   greetInterview,
   casualSessionOpener,
@@ -101,7 +108,14 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   onToggleVoice,
   onPracticeEvaluationComplete,
 }) => {
-  const [inputText, setInputText] = useState('');
+  // Unsent-draft autosave, one slot per mode: a typed-but-unsent message
+  // survives tab/app switches and reappears when that mode is opened again.
+  // Sending clears, switching modes keeps each mode's own draft.
+  const [chatDrafts, setChatDrafts] = useState(() => loadChatDrafts());
+  const [inputText, setInputText] = useState(() => {
+    const drafts = loadChatDrafts();
+    return drafts[loadSavedChatMode()]?.input || '';
+  });
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // Central mood state machine (src/utils/serenMood.ts) — 'listening' is
@@ -133,6 +147,18 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   );
   const messages = messagesByMode[selectedTopicMode];
   const interviewMessages = messagesByMode['Interview'];
+
+  // Live cloud updates: when the sync engine applies a remote value (another
+  // device pushed a new chat history), the mirrored state has to be re-read —
+  // otherwise this tab keeps showing the copy it loaded at mount time.
+  useEffect(
+    () =>
+      subscribeToChatHistory((key) => {
+        if (key && key !== 'seren_chat_history') return;
+        setMessagesByMode(loadMessagesByMode());
+      }),
+    []
+  );
 
   // bootedRef guards the first-visit greeting against StrictMode's double
   // effect invocation.
@@ -168,7 +194,67 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatWindowRef = useRef<HTMLDivElement>(null);
   const [chatLayout, setChatLayout] = useState<ChatLayout>(loadSavedChatLayout);
-  const { messageAreaHeight, chatWindowHeight } = chatLayout;
+  const { chatWindowHeight } = chatLayout;
+  // True once the user has dragged the resize grip (or a saved layout was
+  // restored) — the window height is then user-owned and auto-pinning stops.
+  const userSizedRef = useRef(chatLayout.chatWindowHeight !== null);
+
+  // ── Pinned chat-window height ────────────────────────────────────────────
+  // The app root is min-h-screen, so the h-full chain feeding this window is
+  // content-driven: whenever the composer auto-grows (multi-line typing), the
+  // whole window extends DOWNWARD and pushes the page scrollbar — the
+  // "input box grows down / scrollarea gets longer" inconsistency. Pinning the
+  // window to a definite height (bounded by the avatar column's content so
+  // both columns end on the same line) lets the messages ScrollArea (flex-1)
+  // absorb every composer change instead: the input grows UP into the chatbox
+  // and the window/page height never moves while typing.
+  const repinChatWindow = () => {
+    const win = chatWindowRef.current;
+    if (!win || userSizedRef.current) return;
+    const prevHeight = win.style.height;
+    win.style.height = ''; // measure the natural grid height without the pin
+    const natural = win.getBoundingClientRect().height;
+    // The avatar column is stretched by the grid row, so its content height is
+    // measured from its children (heights + their margins + the column padding).
+    const leftCol = win.previousElementSibling as HTMLElement | null;
+    let leftContent = 0;
+    if (leftCol) {
+      const colStyle = getComputedStyle(leftCol);
+      leftContent = (parseFloat(colStyle.paddingTop) || 0) + (parseFloat(colStyle.paddingBottom) || 0);
+      for (const child of Array.from(leftCol.children)) {
+        const childStyle = getComputedStyle(child);
+        leftContent +=
+          child.getBoundingClientRect().height +
+          (parseFloat(childStyle.marginTop) || 0) +
+          (parseFloat(childStyle.marginBottom) || 0);
+      }
+    }
+    win.style.height = prevHeight;
+    const ceiling = leftContent > 0 ? leftContent : natural;
+    const target = Math.max(360, Math.round(Math.min(natural, ceiling)));
+    if (!Number.isFinite(target) || target <= 0) return;
+    setChatLayout((layout) =>
+      layout.chatWindowHeight === target ? layout : { ...layout, chatWindowHeight: target }
+    );
+  };
+
+  // Re-pin whenever content that drives the height changes: new messages, a
+  // mode switch (the avatar column's tips panel changes), or a viewport
+  // resize (the avatar scales with its column width). Typing in the composer
+  // deliberately does NOT re-pin — that is the growth the pin exists to absorb.
+  useLayoutEffect(() => {
+    repinChatWindow();
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(repinChatWindow);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf);
+    };
+  }, [messages, selectedTopicMode]);
   const isRecordingRef = useRef(false);
   const stoppingInterviewRef = useRef(false);
   const currentQuestionIdxRef = useRef(0);
@@ -226,7 +312,17 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
 
   // Persist BOTH chat threads after every message so each mode's history
   // survives reloads and app restarts — kept separate, never mixed.
+  //
+  // The "only write when the content actually changed" guard matters now that
+  // the cloud can push a remote history into this tab: re-reading it produces
+  // a NEW object with the same content, and writing that back would mark the
+  // key dirty and push it straight back to the cloud — an endless ping-pong
+  // between devices.
+  const lastPersistedHistoryRef = useRef<string | null>(null);
   useEffect(() => {
+    const serialized = JSON.stringify(messagesByMode);
+    if (serialized === lastPersistedHistoryRef.current) return;
+    lastPersistedHistoryRef.current = serialized;
     saveMessagesByMode(messagesByMode);
   }, [messagesByMode]);
 
@@ -291,7 +387,10 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   // The composer's editable answer box — the Whisper transcript lands here
   // after the user stops recording, and doubles as the typed-answer input
   // (Discord/WhatsApp style).
-  const [answerText, setAnswerText] = useState('');
+  const [answerText, setAnswerText] = useState(() => {
+    const drafts = loadChatDrafts();
+    return drafts[loadSavedChatMode()]?.answer || '';
+  });
   const answerTextRef = useRef('');
   const updateAnswerText = (text: string) => {
     answerTextRef.current = text;
@@ -724,6 +823,9 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
           ...data.evaluation,
           upgradedExpressions:
             jsonUpgrades.length > 0 ? jsonUpgrades : data.evaluation.upgradedExpressions,
+          // Carry the server's degradation metadata so the report can say what
+          // was missing instead of showing an empty panel.
+          degradation: data.evaluation.degradation || data.degradation || undefined,
         };
         soundFX.playChime('success');
         // Every topic of this run is remembered so the next run rotates to new
@@ -741,10 +843,12 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     } catch (err) {
       console.error('Practice evaluation failed:', err);
       setIsEvaluating(false);
+      // The interview session is NOT cleared on failure, so the learner can
+      // simply press "Evaluate" again with the same answers.
       const errorMsg: ChatMessage = {
         id: `msg-err-${Date.now()}`,
         sender: 'seren',
-        text: `Sorry, something went wrong with the evaluation. Please try again.`,
+        text: `Sorry, the evaluation didn't finish this time — your answers are still here, so just press Evaluate again.`,
         timestamp: Date.now(),
         mood: 'speaking',
       };
@@ -771,6 +875,19 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
   const handleInputChange = (text: string) => {
     setInputText(text);
   };
+
+  // Unsent-draft autosave, one slot per mode: typed text survives tab/app
+  // switches. Covers every writer (typing, mic transcription append, hint
+  // sample insert, replay). Sending clears that mode's draft, switching modes
+  // restores the other mode's draft — handled at those call sites.
+  useEffect(() => {
+    const mode: ChatDraftMode = modeRef.current;
+    setChatDrafts((prev) => {
+      if (prev[mode]?.input === inputText && prev[mode]?.answer === answerText) return prev;
+      return { ...prev, [mode]: { input: inputText, answer: answerText } };
+    });
+    saveChatDraftForMode(mode, { input: inputText, answer: answerText });
+  }, [inputText, answerText]);
 
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
@@ -1012,13 +1129,18 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
     void activeAudioRecorder.stop().catch(() => {});
     setIsRecording(false);
     setIsLoading(false);
-    setInputText('');
-    setAnswerText('');
     setSttNotice('');
     setShowHint(false);
     setHintText('');
     setSelectedTopicMode(mode);
     modeRef.current = mode; // immediate — startInterview() checks this ref
+    // Restore the target mode's unsent draft (per-mode slots) — switching
+    // modes no longer drops typed-but-unsent text. The outgoing mode's own
+    // draft was already autosaved on every keystroke (see the effect above),
+    // so it survives the round-trip.
+    const incoming = chatDrafts[mode] || loadChatDrafts()[mode];
+    setInputText(incoming?.input || '');
+    updateAnswerText(incoming?.answer || '');
 
     if (mode === 'Interview') {
       // Fresh interview only when the interview thread has no messages yet.
@@ -1089,6 +1211,9 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
         messageAreaHeight: nextHeight,
         chatWindowHeight: nextHeight + reservedHeight,
       };
+      // From the first drag onward the height is user-owned — auto-pinning
+      // must never fight the manually chosen size.
+      userSizedRef.current = true;
       setChatLayout(resizedLayout);
     };
     const handleMouseUp = () => {
@@ -1290,12 +1415,11 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
           style={chatWindowHeight === null ? undefined : { height: `${chatWindowHeight}px` }}
         >
 
-          {/* Messages Stream — bounded scroll area: the window keeps a fixed
-              height and old messages scroll away instead of stretching the page */}
-          <ScrollArea
-            className={`${messageAreaHeight === null ? 'flex-1 max-h-[55vh] lg:max-h-none' : 'flex-none max-h-none'} p-3.5 sm:p-5 space-y-3 sm:space-y-4`}
-            style={messageAreaHeight === null ? undefined : { height: `${messageAreaHeight}px` }}
-          >
+          {/* Messages Stream — ALWAYS the flexible element inside the pinned
+              window: when the composer auto-grows, this area shrinks and the
+              input expands UP into the chatbox; when messages accumulate they
+              scroll internally instead of stretching the window/page down. */}
+          <ScrollArea className="flex-1 min-h-0 p-3.5 sm:p-5 space-y-3 sm:space-y-4">
             {messages.map((msg, msgIdx) => {
               const isUser = msg.sender === 'user';
               const prevMsg = messages[msgIdx - 1];

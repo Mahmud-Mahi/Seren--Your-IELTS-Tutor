@@ -245,6 +245,25 @@ function seedSettingsFromProject() {
   }
 }
 
+/**
+ * Seed a writable copy of the bundled .env into the app-data folder
+ * (~/.config/Seren on Linux) on first launch, so a packaged install carries
+ * its authentication config without the user having to copy anything by hand.
+ * Never overwrites an existing app-data .env (user settings win).
+ */
+function seedEnvToAppData() {
+  const source = path.join(APP_ROOT, '.env');
+  const target = path.join(DATA_DIR, '.env');
+  try {
+    if (fs.existsSync(target) || !fs.existsSync(source)) return;
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.copyFileSync(source, target);
+    log('seeded bundled .env into the app data folder');
+  } catch (e) {
+    log(`could not seed .env to app data: ${e?.message || e}`);
+  }
+}
+
 /** Seed the bundled Whisper files into the writable app-data directory. */
 function seedWhisperModel() {
   const source = path.join(process.resourcesPath, 'models', 'sherpa-onnx-whisper-base.en');
@@ -817,6 +836,22 @@ function registerIpcHandlers() {
     await boot();
     return true;
   });
+
+  // Open a URL in the user's real browser. Used for the Google consent
+  // screen — Google refuses to run OAuth inside an embedded user agent
+  // (Electron), so the sign-in has to happen in the system browser. The
+  // redirect comes back to a loopback listener on this machine.
+  ipcMain.handle('seren:open-external', async (_event, url) => {
+    if (typeof url !== 'string') return false;
+    // Only web URLs may be handed to the OS browser — never a custom scheme
+    // (which could launch another app) and never a file:// path.
+    if (!/^https?:\/\//i.test(url)) {
+      log('blocked external open of non-web URL');
+      return false;
+    }
+    await shell.openExternal(url);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +905,7 @@ if (!app.requestSingleInstanceLock()) {
     resetLog();
     log(`starting Seren ${app.getVersion()} (Electron ${process.versions.electron}, ${process.platform})`);
     loadProjectEnv();
+    seedEnvToAppData();
     seedSettingsFromProject();
     seedWhisperModel();
     buildMenu();

@@ -108,6 +108,11 @@ export const SerenAvatar: React.FC<SerenAvatarProps> = ({
 
     if (!currentSpeech) {
       setDisplayedText('');
+      // Parent cleared her bubble (the lesson does saySeren('') while a
+      // follow-up reply is in flight) — forget the dedup key so the SAME line
+      // coming back next round is shown and read aloud again instead of being
+      // dropped as a duplicate of the previous round.
+      lastSpokenRef.current = '';
       return;
     }
 
@@ -121,11 +126,15 @@ export const SerenAvatar: React.FC<SerenAvatarProps> = ({
     }
 
     if (voiceEnabled && targetAudio && !isUserSpeaking) {
+      // The bubble always mirrors the latest text; only the AUDIO is deduped
+      // so StrictMode/overlapping effects never double-speak. Skipping the
+      // display here used to leave the bubble blank whenever a repeated line
+      // followed a clear.
+      setDisplayedText(currentSpeech);
       // Only speak if this is a newly requested distinct speech text
       if (lastSpokenRef.current !== targetAudio) {
         lastSpokenRef.current = targetAudio;
         lastSpeakStartedRef.current = false;
-        setDisplayedText(currentSpeech);
         serenVoice.speak(targetAudio, {
           onStart: () => {
             lastSpeakStartedRef.current = true;
