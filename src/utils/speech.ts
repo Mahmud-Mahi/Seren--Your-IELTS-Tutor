@@ -158,8 +158,7 @@ class SpeechEngine {
         if (storedEngine === 'server' || storedEngine === 'browser') {
           this.ttsEngine = storedEngine;
         }
-        const storedVoice = localStorage.getItem('seren_tts_voice');
-        if (storedVoice) this.ttsVoice = storedVoice;
+        // NOTE: ttsVoice is NOT persisted in localStorage — it loads from server later.
       } catch (e) {}
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -198,13 +197,7 @@ class SpeechEngine {
 
   public setVoice(voice: string | null) {
     this.ttsVoice = voice;
-    try {
-      if (voice) {
-        localStorage.setItem('seren_tts_voice', voice);
-      } else {
-        localStorage.removeItem('seren_tts_voice');
-      }
-    } catch (e) {}
+    // NOT persisted in localStorage anymore — server only.
   }
 
   public getVoice(): string | null {

@@ -44,6 +44,7 @@ import {
   TEXT_SCALE_STEP,
 } from '../utils/textScale';
 import { ShortcutSettings } from './ShortcutSettings';
+const DEFAULT_TTS_VOICE_ID = 'google-tts-en-ca';
 
 interface ProviderStatus {
   key: string;
@@ -136,11 +137,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
 
   const [confirmingWipe, setConfirmingWipe] = useState(false);
   const [wiping, setWiping] = useState(false);
+  const voiceSaveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [voiceSaveMsg, setVoiceSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [voices, setVoices] = useState<TtsVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>(serenVoice.getVoice() || 'en-US-JennyNeural');
+  const [selectedVoice, setSelectedVoice] = useState<string>(serenVoice.getVoice() || DEFAULT_TTS_VOICE_ID);
   const [ttsEngine, setTtsEngine] = useState<TTSEngineMode>(serenVoice.getTtsEngine());
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+  const [editingTtsFor, setEditingTtsFor] = useState<string | null>(null);
+  const [savingTtsFor, setSavingTtsFor] = useState<string | null>(null);
+  const [ttsProvider, setTtsProvider] = useState<string>('google');
+  const [expandedTtsProvider, setExpandedTtsProvider] = useState<string>('');
+  const [selectedTtsVoice, setSelectedTtsVoice] = useState<Record<string, string>>({});
+  const [azureKey, setAzureKey] = useState('');
+  const [azureRegion, setAzureRegion] = useState('');
+  const [pollyAccessKey, setPollyAccessKey] = useState('');
+  const [pollySecretKey, setPollySecretKey] = useState('');
+  const [pollyRegion, setPollyRegion] = useState('');
+
   const [serverTtsOnline, setServerTtsOnline] = useState<boolean | null>(null);
 
   // Interview microphone preference (automatic vs manual mic)
@@ -263,15 +277,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     void loadStatus();
     void loadModelLists();
     void (async () => {
+      // Fetch all voices from all providers
       try {
         const res = await fetch('/api/tts/voices');
         const data = await res.json();
-        if (data.success) setVoices(data.voices || []);
+        if (data.success) {
+          const av = data.voices || [];
+          setVoices(av);
+          // Default voice per provider so dropdowns and previews work before any save
+          setSelectedTtsVoice((prev) => {
+            const next = { ...prev };
+            if (!next.google) next.google = av.find((v: any) => v.id === 'google-tts-en-ca')?.id || av.find((v: any) => v.id.startsWith('google-tts-'))?.id || '';
+            if (!next.azure) next.azure = av.find((v: any) => v.id.includes('Neural'))?.id || '';
+            if (!next.polly) next.polly = av.find((v: any) => !v.id.startsWith('google-tts-') && !v.id.includes('Neural'))?.id || '';
+            return next;
+          });
+        }
       } catch (e) {}
+
+      // Fetch saved TTS voice/provider from server and apply
+      try {
+        const statusRes = await fetch('/api/providers/status');
+        const statusData = await statusRes.json();
+        if (statusData.success && statusData.tts) {
+          const { voice: savedVoice, provider: savedProvider, voices: savedVoices } = statusData.tts;
+
+          // Apply saved provider
+          if (savedProvider && ['google', 'azure', 'polly'].includes(savedProvider)) {
+            setTtsProvider(savedProvider);
+            // Google never needs the expanded editor/Save button; auto-saves on click/voice change
+            setExpandedTtsProvider(savedProvider === 'google' ? '' : savedProvider);
+          }
+
+          // Apply saved per-provider voices from server
+          if (savedVoices && typeof savedVoices === 'object') {
+            setSelectedTtsVoice({ ...savedVoices });
+          }
+
+          // Apply saved voice to the speech engine
+          if (savedVoice && typeof savedVoice === 'string') {
+            serenVoice.setVoice(savedVoice);
+            setSelectedVoice(savedVoice);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load saved TTS settings from server:', err);
+      }
     })();
     setServerTtsOnline(null);
     void serenVoice.checkServerTts().then(setServerTtsOnline);
   }, [open, loadStatus, loadModelLists]);
+
+  // Apply the selected TTS provider's voice to the speech engine when provider changes
+  useEffect(() => {
+    if (!ttsProvider || ttsProvider === '') return;
+    const v = selectedTtsVoice[ttsProvider] || voices.find((voice) => {
+      if (ttsProvider === 'google') return voice.id.startsWith('google-tts-');
+      if (ttsProvider === 'azure') return voice.id.includes('Neural');
+      return !voice.id.startsWith('google-tts-') && !voice.id.includes('Neural');
+    })?.id || '';
+    if (v) {
+      serenVoice.setVoice(v);
+      setSelectedVoice(v);
+    }
+  }, [ttsProvider, selectedTtsVoice, voices]);
 
   useEffect(() => {
     const getAppInfo = window.serenDesktop?.getAppInfo;
@@ -495,14 +564,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     }
   };
 
-  const handlePreviewVoice = async (voiceId: string) => {
+  const handlePreviewVoice = async (voiceId: string, providerKey: string) => {
+    // Google is always available (no config needed). Azure/Polly require config.
+    if (providerKey === 'azure' && !(azureKey && azureRegion)) return;
+    if (providerKey === 'polly' && !(pollyAccessKey && pollySecretKey && pollyRegion)) return;
     setPreviewingVoice(voiceId);
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: `Hi! I'm Seren, your IELTS speaking coach. This is my ${voiceId.split('-')[2]} voice.`,
+          text: `Hi! I'm Seren, your IELTS speaking coach. This is my ${voiceId} voice.`,
           voice: voiceId,
         }),
       });
@@ -522,8 +594,77 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
 
   const applyVoice = (voiceId: string) => {
     setSelectedVoice(voiceId);
-    serenVoice.setVoice(voiceId === 'en-US-JennyNeural' ? null : voiceId);
+    serenVoice.setVoice(voiceId === DEFAULT_TTS_VOICE_ID ? null : voiceId);
   };
+  const handleSaveTtsProvider = async (provider: string) => {
+    if (provider === 'google') {
+      // Google needs no API keys, but still persist provider + voice selection
+      setSavingTtsFor(provider);
+      try {
+        const voiceId = selectedTtsVoice['google'] || '';
+        await fetch('/api/providers/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+          ttsProvider: 'google',
+          ttsVoice: voiceId || 'google-tts-en-ca',
+          ttsVoices: voiceId ? { google: voiceId } : {},
+        }),
+        });
+      } catch (e) {}
+      finally {
+        setSavingTtsFor(null);
+      }
+      return;
+    }
+    setSavingTtsFor(provider);
+    try {
+      const voiceId = selectedTtsVoice[provider] || '';
+      const res = await fetch('/api/providers/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ttsProvider: provider,
+          ttsVoice: voiceId || undefined,
+          ttsAzureKey: provider === 'azure' ? azureKey.trim() || undefined : undefined,
+          ttsAzureRegion: provider === 'azure' ? azureRegion.trim() || undefined : undefined,
+          ttsPollyAccessKey: provider === 'polly' ? pollyAccessKey.trim() || undefined : undefined,
+          ttsPollySecretKey: provider === 'polly' ? pollySecretKey.trim() || undefined : undefined,
+          ttsPollyRegion: provider === 'polly' ? pollyRegion.trim() || undefined : undefined,
+          ttsVoices: voiceId ? { [provider]: voiceId } : {},
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.success) {
+        alert(`Failed to save ${provider} settings: ${data.error || 'Unknown error'}`);
+      }
+    } catch (e: any) {
+      alert(`Network error while saving ${provider} settings: ${e?.message}`);
+    } finally {
+      setSavingTtsFor(null);
+    }
+  };
+  
+  const handleSaveTtsVoiceSelection = async (provider: string, voiceId: string) => {
+    try {
+      const res = await fetch('/api/providers/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ttsProvider: provider,
+          ttsVoice: voiceId,
+          ttsVoices: { [provider]: voiceId },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.success) {
+        console.warn(`Failed to save voice preference for ${provider}:`, data.error);
+      }
+    } catch (e) {
+      console.warn(`Network error saving voice preference for ${provider}:`, e);
+    }
+  };
+
 
   return (
     <AnimatePresence>
@@ -909,7 +1050,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                         Neural Voice
                       </div>
                       <div className="text-[10px] text-[#6272a4] mt-1">
-                        {serverTtsOnline === null ? 'Checking availability…' : serverTtsOnline ? 'Online — Microsoft Edge neural voices' : 'Offline — will use browser voice'}
+                        {serverTtsOnline === null ? 'Checking availability…' : serverTtsOnline ? 'Online — Google neural voices' : 'Offline — will use browser voice'}
                       </div>
                     </button>
                     <button
@@ -929,39 +1070,196 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                     </button>
                   </div>
 
-                  {/* Voice picker */}
-                  <div>
-                    <label className="text-[11px] font-semibold text-[#6272a4] mb-1.5 block">Neural voice</label>
-                    <div className="flex min-w-0 gap-2">
-                      <select
-                        value={selectedVoice}
-                        onChange={(e) => applyVoice(e.target.value)}
-                        className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-[#44475a] bg-[#282a36] text-xs text-[#f8f8f2] outline-none focus:border-[#bd93f9]/60"
-                      >
-                        {voices.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.name} ({v.locale}, {v.gender}) — {v.personality}
-                          </option>
-                        ))}
-                        {voices.length === 0 && <option value={selectedVoice}>{selectedVoice}</option>}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => void handlePreviewVoice(selectedVoice)}
-                        disabled={previewingVoice === selectedVoice}
-                        className="shrink-0 whitespace-nowrap px-3 py-2 rounded-xl border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-xs font-bold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        {previewingVoice === selectedVoice ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Play className="w-3.5 h-3.5" />
-                        )}
-                        Preview
-                      </button>
-                    </div>
-                  </div>
+
                 </div>
               </section>
+
+              {/* TTS Providers */}
+              <section>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#8be9fd] mb-3">TTS Providers</h3>
+                <div className="p-4 rounded-2xl border border-[#44475a] bg-[#21222c] space-y-3">
+                  <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                    Choose how Seren speaks aloud. Google is free and instant — no setup needed. Azure and Amazon Polly require API keys.
+                  </p>
+                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                    {[
+                      { key: 'google', label: 'Google TTS', description: 'Free, instant, no setup required. Get voices: built-in.' },
+                      { key: 'azure', label: 'Microsoft Azure', description: 'Get API key & region: Azure Portal → Create Speech resource → Keys & Endpoint ', url: 'https://portal.azure.com' },
+                      { key: 'polly', label: 'Amazon Polly', description: 'Get AWS access key & secret: AWS Console → IAM → Users → Security credentials ', url: 'https://console.aws.amazon.com/iam' },
+                    ].map((p) => {
+                      const active = ttsProvider === p.key;
+                      const statusColor = p.key === 'google' ? '#50fa7b' : p.key === 'azure' ? (azureKey ? '#50fa7b' : '#ffb86c') : (pollyAccessKey && pollySecretKey ? '#50fa7b' : '#ffb86c');
+                      const icon = p.key === 'google' ? <Globe className="w-4 h-4 text-[#8be9fd]" /> : p.key === 'azure' ? <Server className="w-4 h-4 text-[#8be9fd]" /> : <Cloud className="w-4 h-4 text-[#8be9fd]" />;
+                      const providerVoices = voices.filter((v) => {
+                        if (p.key === 'google') return v.id.startsWith('google-tts-');
+                        if (p.key === 'azure') return v.id.includes('Neural');
+                        return !v.id.startsWith('google-tts-') && !v.id.includes('Neural');
+                      });
+                      const selectedVoice = selectedTtsVoice[p.key] || providerVoices[0]?.id || '';
+                      return (
+                        <div key={p.key} onClick={() => { void setTtsProvider(p.key); void setExpandedTtsProvider(p.key === 'google' ? '' : p.key); if (p.key === 'google') { void handleSaveTtsProvider(p.key); try { localStorage.setItem('seren_tts_provider', JSON.stringify('google')); localStorage.setItem('seren_tts_voice_google', selectedTtsVoice['google'] || 'google-tts-en-ca'); } catch {} } }} className={`p-3 rounded-2xl border cursor-pointer ${ttsProvider === p.key ? 'border-[#bd93f9]/60 bg-[#bd93f9]/10' : 'border-[#44475a] hover:border-[#6272a4]'}`}>
+                          <div className="flex items-center gap-2">
+                            {icon}
+                            <div className="text-xs font-bold text-[#f8f8f2]">{p.label}</div>
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColor }} />
+                            {ttsProvider === p.key && <Check className="w-3.5 h-3.5 text-[#50fa7b] ml-auto" />}
+                          </div>
+                          <div className="text-[10px] text-[#6272a4] mt-1 mb-2">
+                            {p.description}
+                            {p.url && (
+                              <a
+                                href={p.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[f8f8f2] underline underline-offset-2 hover:no-underline"
+                              >
+                                {p.url}
+                              </a>
+                            )}
+                          </div>
+                          <select
+                            value={selectedTtsVoice[p.key] || providerVoices[0]?.id || ''}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSelectedTtsVoice((prev) => ({ ...prev, [p.key]: v }));
+                              setSelectedVoice(v);
+                              serenVoice.setVoice(v);
+                              // Persist to local storage so cloud-sync (Firestore) mirrors it
+                              try {
+                                localStorage.setItem(`seren_tts_voice_${p.key}`, v);
+                                localStorage.setItem('seren_tts_provider', JSON.stringify(p.key));
+                              } catch {}
+                              void handleSaveTtsVoiceSelection(p.key, v);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-xs text-[#f8f8f2] font-mono cursor-pointer"
+                          >
+                            {providerVoices.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name} ({v.locale}) — {v.gender}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex items-center gap-2 mt-2">
+                            {!active && p.key !== 'google' && (
+                              <button
+                                type="button"
+                                onClick={() => { void setTtsProvider(p.key); void setExpandedTtsProvider(p.key); }}
+                                className="flex-1 px-2.5 py-1 rounded-lg border border-[#44475a] bg-[#282a36] hover:bg-[#44475a] text-[#8be9fd] text-[10px] font-semibold transition-colors flex items-center gap-1.5"
+                              >
+                                <Globe className="w-3 h-3" /> Configure
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handlePreviewVoice(selectedVoice, p.key);
+                              }}
+                              disabled={
+                                (p.key === 'azure' && !(azureKey && azureRegion)) ||
+                                (p.key === 'polly' && !(pollyAccessKey && pollySecretKey && pollyRegion))
+                              }
+                              className="px-2.5 py-1 rounded-lg border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-[10px] font-semibold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              {previewingVoice === selectedVoice ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Play className="w-3 h-3" />
+                              )}
+                              Preview
+                            </button>
+                          </div>
+                          {expandedTtsProvider === p.key && p.key !== 'google' && (
+                            <div className="mt-2 space-y-2">
+                              {p.key === 'azure' && (
+                                <>
+                                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">Azure Speech key</label>
+                                  <input
+                                    type="text"
+                                    value={azureKey}
+                                    onChange={(e) => setAzureKey(e.target.value)}
+                                    placeholder="Azure Speech key"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60"
+                                  />
+                                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">Azure region</label>
+                                  <input
+                                    type="text"
+                                    value={azureRegion}
+                                    onChange={(e) => setAzureRegion(e.target.value)}
+                                    placeholder="e.g. eastus"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60"
+                                  />
+                                </>
+                              )}
+                              {p.key === 'polly' && (
+                                <>
+                                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">AWS access key ID</label>
+                                  <input
+                                    type="text"
+                                    value={pollyAccessKey}
+                                    onChange={(e) => setPollyAccessKey(e.target.value)}
+                                    placeholder="AKIA..."
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60"
+                                  />
+                                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">AWS secret access key</label>
+                                  <input
+                                    type="password"
+                                    value={pollySecretKey}
+                                    onChange={(e) => setPollySecretKey(e.target.value)}
+                                    placeholder="••••••••"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60"
+                                  />
+                                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">AWS region</label>
+                                  <input
+                                    type="text"
+                                    value={pollyRegion}
+                                    onChange={(e) => setPollyRegion(e.target.value)}
+                                    placeholder="e.g. us-east-1"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60"
+                                  />
+                                </>
+                              )}
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={savingTtsFor === p.key}
+                                  onClick={() => void handleSaveTtsProvider(p.key)}
+                                  className="flex-1 px-3 py-1.5 rounded-lg bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36] text-[11px] font-bold transition-colors flex items-center gap-1.5 disabled:opacity-40"
+                                >
+                                  {savingTtsFor === p.key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedTtsProvider('')}
+                                  className="px-3 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[#6272a4] hover:text-[#f8f8f2] text-[11px] font-medium transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+              </div>  
+            </section>
 
               {/* Display size */}
               <section>

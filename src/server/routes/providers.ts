@@ -14,7 +14,7 @@ import {
   type SttEngine,
 } from '../config';
 import { getProviders, isProviderReachable, fetchWithTimeout, clearProviderCaches } from '../llm';
-import { defaultTtsVoice, sanitizeVoice } from '../tts';
+import { defaultTtsVoice, defaultTtsVoiceForProvider, sanitizeVoice, sanitizeVoiceForProvider } from '../tts';
 import { describeSttEngines } from '../stt-providers';
 
 export function registerProviderRoutes(app: express.Express): void {
@@ -47,7 +47,12 @@ export function registerProviderRoutes(app: express.Express): void {
         pinnedProvider: runtimeConfig.pinnedProvider || process.env.PINNED_PROVIDER || null,
         priority: (process.env.PROVIDER_PRIORITY || 'local,ollama,groq').split(',').map((s) => s.trim()),
         providers: results,
-        tts: { enabled: ttsEnabled(), voice: defaultTtsVoice() },
+        tts: {
+          enabled: ttsEnabled(),
+          voice: defaultTtsVoice(),
+          provider: runtimeConfig.ttsProvider || null,
+          voices: { ...runtimeConfig.ttsVoices },
+        },
         stt: { engine: sttEngine(), engines: await describeSttEngines() },
       });
     } catch (err: any) {
@@ -249,9 +254,49 @@ export function registerProviderRoutes(app: express.Express): void {
         runtimeConfig.ttsVoice = v;
       }
 
+      // Per-provider TTS voice selection: { ttsVoices: { google: '...', azure: '...', polly: '...' } }
+      if (req.body?.ttsVoices !== undefined) {
+        const vv = req.body.ttsVoices;
+        if (typeof vv !== 'object' || vv === null || Array.isArray(vv)) {
+          return res.status(400).json({ success: false, error: 'ttsVoices must be an object of provider -> voice id' });
+        }
+        for (const [provider, voiceId] of Object.entries(vv)) {
+          if (!['google', 'azure', 'polly'].includes(provider)) {
+            return res.status(400).json({ success: false, error: `Unknown TTS provider '${provider}'` });
+          }
+          if (voiceId === '' || voiceId === null || voiceId === undefined) {
+            delete runtimeConfig.ttsVoices[provider];
+            continue;
+          }
+          if (typeof voiceId !== 'string') {
+            return res.status(400).json({ success: false, error: `Invalid TTS voice for ${provider}` });
+          }
+          const clean = voiceId.trim();
+          const validated = sanitizeVoiceForProvider(clean, provider);
+          if (!validated) {
+            return res.status(400).json({ success: false, error: `Unknown TTS voice id '${clean}' for ${provider}` });
+          }
+          runtimeConfig.ttsVoices[provider] = validated;
+        }
+      }
+
       if (typeof enableTts === 'boolean') {
         runtimeConfig.ttsEnabled = enableTts;
       }
+
+      // TTS provider selection / keys
+      if (req.body?.ttsProvider !== undefined) {
+        const prov = String(req.body.ttsProvider).trim().toLowerCase();
+        if (!['google', 'azure', 'polly'].includes(prov)) {
+          return res.status(400).json({ success: false, error: 'ttsProvider must be google, azure, or polly' });
+        }
+        runtimeConfig.ttsProvider = prov;
+      }
+      if (req.body?.ttsAzureKey !== undefined) runtimeConfig.ttsAzureKey = String(req.body.ttsAzureKey).trim() || null;
+      if (req.body?.ttsAzureRegion !== undefined) runtimeConfig.ttsAzureRegion = String(req.body.ttsAzureRegion).trim() || null;
+      if (req.body?.ttsPollyAccessKey !== undefined) runtimeConfig.ttsPollyAccessKey = String(req.body.ttsPollyAccessKey).trim() || null;
+      if (req.body?.ttsPollySecretKey !== undefined) runtimeConfig.ttsPollySecretKey = String(req.body.ttsPollySecretKey).trim() || null;
+      if (req.body?.ttsPollyRegion !== undefined) runtimeConfig.ttsPollyRegion = String(req.body.ttsPollyRegion).trim() || null;
 
       if (sttEngineSel !== undefined) {
         if (sttEngineSel === null || sttEngineSel === 'auto') {
@@ -306,11 +351,18 @@ export function registerProviderRoutes(app: express.Express): void {
         pinnedProvider: runtimeConfig.pinnedProvider,
         modelOverrides: runtimeConfig.modelOverrides,
         ttsVoice: runtimeConfig.ttsVoice || undefined,
+        ttsVoices: { ...runtimeConfig.ttsVoices },
         ttsEnabled: runtimeConfig.ttsEnabled ?? undefined,
+        ttsProvider: runtimeConfig.ttsProvider || undefined,
+        ttsAzureKey: runtimeConfig.ttsAzureKey || undefined,
+        ttsAzureRegion: runtimeConfig.ttsAzureRegion || undefined,
+        ttsPollyAccessKey: runtimeConfig.ttsPollyAccessKey || undefined,
+        ttsPollySecretKey: runtimeConfig.ttsPollySecretKey || undefined,
+        ttsPollyRegion: runtimeConfig.ttsPollyRegion || undefined,
         endpoints: runtimeConfig.endpoints,
       });
 
-      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsEnabled: ttsEnabled(), sttEngine: sttEngine(), sttModels: { groq: sttModelFor('groq'), assemblyai: sttModelFor('assemblyai'), deepgram: sttModelFor('deepgram') } } });
+      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsVoices: { ...runtimeConfig.ttsVoices }, ttsEnabled: ttsEnabled(), sttEngine: sttEngine(), sttModels: { groq: sttModelFor('groq'), assemblyai: sttModelFor('assemblyai'), deepgram: sttModelFor('deepgram') } } });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'configuration failed' });
     }

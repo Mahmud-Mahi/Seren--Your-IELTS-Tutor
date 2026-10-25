@@ -158,6 +158,7 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 ### 🐛 Fixed
 
 - 🔊 **TTS reliability** — Edge TTS connections are now pooled and reused per voice (was a fresh WebSocket, DNS lookup and TLS handshake on *every* utterance, ~1.5 s of dead air each time), and the IPv6 "Happy Eyeballs" race that caused random `ETIMEDOUT` failures is fixed by letting the resolver pick a single address. Measured 0/10 failures, down from 2/10.
+- 🔊 **TTS voice selection now persists and syncs** — per-provider (Google / Azure / Polly) voice choices in Settings are saved immediately (no manual Save button needed for Google) to both the local `seren-settings.json` and Firestore, with Google defaulting to `google-tts-en-ca`; on restart the online (Firestore) value takes precedence with a local-file fallback, so the two stay in sync instead of contradicting.
 - 🔁 **Provider cascade no longer poisons itself** — a transient 429/5xx/network blip is retried in place with exponential backoff instead of cooling a healthy provider down for 10 minutes, so one rate-limited call no longer breaks the whole cascade.
 - 📉 **A failed run no longer destroys your report** — a degraded (fallback) evaluation is still shown, but it no longer overwrites the real report you earned.
 - 🧱 **One bad module no longer throws away three good ones** — lesson-roadmap validation is now per-module: valid modules survive, broken ones are repaired, and only ungroundable ones are dropped (and reported).

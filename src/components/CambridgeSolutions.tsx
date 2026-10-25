@@ -44,7 +44,6 @@ interface CambridgeSolutionsProps {
 // Fixed male neural voice for the examiner (IELTS-style British examiner).
 // Seren's answers keep the app's configured voice so the two roles stay
 // audibly distinct.
-const EXAMINER_VOICE = 'en-GB-RyanNeural';
 
 // Breathing room: examiner → Seren's answer, and answer → next question.
 const TURN_PAUSE_MS = 2500;
@@ -197,6 +196,25 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     return true;
   };
 
+  const speakMaleBrowser = (text: string) =>
+    new Promise<void>((resolve) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        resolve();
+        return;
+      }
+      try { window.speechSynthesis.cancel(); } catch {}
+      const voices = window.speechSynthesis.getVoices();
+      const male =
+        voices.find((v) => /male|david|mark|alex|daniel|george|guy|bruce|rishi/i.test(v.name)) ||
+        voices.find((v) => !/female|woman|girl/i.test(v.name)) ||
+        null;
+      const u = new SpeechSynthesisUtterance(text);
+      if (male) u.voice = male;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      window.speechSynthesis.speak(u);
+    });
+
   // One spoken turn. If the user pauses mid-turn the utterance is cut short
   // and replayed from the top once the session resumes.
   const speakTurn = async (
@@ -210,7 +228,11 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         await waitWhilePaused(gen, topicKey);
         continue;
       }
-      await serenVoice.speak(text, { voice });
+      if (voice === 'browser-male') {
+        await speakMaleBrowser(text);
+      } else {
+        await serenVoice.speak(text, { voice });
+      }
       if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
       if (pausedRef.current) continue; // paused during the turn → replay it
       return;
@@ -249,7 +271,7 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         // 1. The examiner asks the question (male neural voice).
         setCurrentQIndex(i);
         setCurrentSpeaker('examiner');
-        await speakTurn(EXAMINER_VOICE, q.question, gen, topicKey);
+        await speakTurn('browser-male', q.question, gen, topicKey);
         if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
 
         // 2. A little pause, then Seren reads the sample answer from the bank.
@@ -403,14 +425,18 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
     if (!scrollArea) return;
 
     const startY = event.clientY;
-    const startHeight = scrollArea.getBoundingClientRect().height;
+    const startRect = scrollArea.getBoundingClientRect();
+    const startHeight = startRect.height;
+    // Upper bound: keep the scroll area inside the viewport so dragging never
+    // pushes it past the bottom of the screen. `top` is captured once because
+    // the scroll area resizes from its bottom edge and never moves vertically.
+    const maxHeight = Math.max(
+      MIN_SOLUTIONS_SCROLL_HEIGHT,
+      window.innerHeight - startRect.top - 24
+    );
     let resizedHeight: number | null = null;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const maxHeight = Math.max(
-        MIN_SOLUTIONS_SCROLL_HEIGHT,
-        window.innerHeight - scrollArea.getBoundingClientRect().top - 24
-      );
       resizedHeight = Math.min(
         maxHeight,
         Math.max(MIN_SOLUTIONS_SCROLL_HEIGHT, startHeight + moveEvent.clientY - startY)
@@ -533,7 +559,11 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
             {/* Scroll area: every topic of this part, with all Q&As at once.
                 Height stretches to match the Seren column on the left so both
                 columns end at the same line and the right column is fully used. */}
-            <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-[#44475a] bg-[#21222c]/70 overflow-hidden">
+            <div
+              className={`flex flex-col min-h-0 rounded-2xl border border-[#44475a] bg-[#21222c]/70 overflow-hidden ${
+                scrollAreaHeight === null ? 'flex-1' : 'shrink-0 grow-0'
+              }`}
+            >
               <ScrollArea
                 className={`${scrollAreaHeight === null ? 'flex-1' : 'flex-none max-h-none'} min-h-0 pr-2 space-y-5`}
                 style={scrollAreaHeight === null ? undefined : { height: `${scrollAreaHeight}px` }}

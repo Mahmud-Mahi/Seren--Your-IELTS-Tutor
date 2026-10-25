@@ -39,3 +39,5 @@ service-account*.json
 *-firebase-adminsdk-*.json
 google-services.json
 
+piper-models/
+piper-test-output/

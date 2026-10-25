@@ -1,6 +1,6 @@
 import type express from 'express';
 import { ttsEnabled } from '../config';
-import { TTS_VOICES, defaultTtsVoice, sanitizeVoice, cleanTextForTts, synthesizeToResponse } from '../tts';
+import { ttsVoices, allTtsVoices, defaultTtsVoice, cleanTextForTts, synthesizeToResponse } from '../tts';
 
 export function registerTtsRoutes(app: express.Express): void {
   // Neural TTS synthesis (Microsoft Edge Read Aloud voices)
@@ -14,7 +14,7 @@ export function registerTtsRoutes(app: express.Express): void {
       if (!cleanTextForTts(text)) {
         return res.status(400).json({ success: false, error: 'text is required' });
       }
-      const voice = sanitizeVoice(body.voice) || defaultTtsVoice();
+      const voice = (typeof body.voice === 'string' && body.voice.trim()) ? body.voice.trim() : defaultTtsVoice();
       const rate = typeof body.rate === 'number' ? body.rate : undefined;
       const pitch = typeof body.pitch === 'number' ? body.pitch : undefined;
       await synthesizeToResponse(res, text, voice, rate, pitch);
@@ -46,6 +46,6 @@ export function registerTtsRoutes(app: express.Express): void {
   app.get('/api/tts', handleTts);
 
   app.get('/api/tts/voices', (req, res) => {
-    res.json({ success: true, voices: TTS_VOICES, defaultVoice: defaultTtsVoice(), enabled: ttsEnabled() });
+    res.json({ success: true, voices: allTtsVoices(), defaultVoice: defaultTtsVoice(), enabled: ttsEnabled() });
   });
 }

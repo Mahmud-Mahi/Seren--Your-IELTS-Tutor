@@ -32,6 +32,7 @@ export function registerSystemRoutes(app: express.Express): void {
       runtimeConfig.modelOverrides = {};
       runtimeConfig.endpoints = {};
       runtimeConfig.ttsVoice = null;
+      runtimeConfig.ttsVoices = {};
       runtimeConfig.ttsEnabled = null;
       runtimeConfig.sttEngine = null;
       runtimeConfig.sttModels = {};

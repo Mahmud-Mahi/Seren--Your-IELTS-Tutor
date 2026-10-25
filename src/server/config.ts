@@ -27,7 +27,14 @@ export interface StoredSettings {
   pinnedProvider?: string | null;
   modelOverrides?: Record<string, string>;
   ttsVoice?: string;
+  ttsVoices?: Record<string, string>;
   ttsEnabled?: boolean;
+  ttsProvider?: string;
+  ttsAzureKey?: string;
+  ttsAzureRegion?: string;
+  ttsPollyAccessKey?: string;
+  ttsPollySecretKey?: string;
+  ttsPollyRegion?: string;
   endpoints?: Record<string, { baseUrl?: string; apiKey?: string }>;
 }
 
@@ -73,6 +80,13 @@ export const runtimeConfig: {
   pinnedProvider: string | null;
   ttsEnabled: boolean | null;
   ttsVoice: string | null;
+  ttsVoices: Record<string, string>;
+  ttsProvider: string | null;
+  ttsAzureKey: string | null;
+  ttsAzureRegion: string | null;
+  ttsPollyAccessKey: string | null;
+  ttsPollySecretKey: string | null;
+  ttsPollyRegion: string | null;
   modelOverrides: Record<string, string>;
   endpoints: Record<string, { baseUrl?: string; apiKey?: string }>;
   sttEngine: SttEngine | null;
@@ -81,6 +95,13 @@ export const runtimeConfig: {
   pinnedProvider: null,
   ttsEnabled: null,
   ttsVoice: null,
+  ttsVoices: {},
+  ttsProvider: null,
+  ttsAzureKey: null,
+  ttsAzureRegion: null,
+  ttsPollyAccessKey: null,
+  ttsPollySecretKey: null,
+  ttsPollyRegion: null,
   modelOverrides: {},
   endpoints: {},
   sttEngine: null,
@@ -110,6 +131,13 @@ export const BOOT_STT_ENGINE = process.env.STT_ENGINE || '';
   if (stored.modelOverrides) runtimeConfig.modelOverrides = stored.modelOverrides;
   if (stored.ttsVoice) runtimeConfig.ttsVoice = stored.ttsVoice;
   if (stored.ttsEnabled !== undefined) runtimeConfig.ttsEnabled = stored.ttsEnabled;
+  if (stored.ttsProvider) runtimeConfig.ttsProvider = stored.ttsProvider;
+  if (stored.ttsAzureKey) runtimeConfig.ttsAzureKey = stored.ttsAzureKey;
+  if (stored.ttsAzureRegion) runtimeConfig.ttsAzureRegion = stored.ttsAzureRegion;
+  if (stored.ttsPollyAccessKey) runtimeConfig.ttsPollyAccessKey = stored.ttsPollyAccessKey;
+  if (stored.ttsPollySecretKey) runtimeConfig.ttsPollySecretKey = stored.ttsPollySecretKey;
+  if (stored.ttsPollyRegion) runtimeConfig.ttsPollyRegion = stored.ttsPollyRegion;
+  if (stored.ttsVoices) runtimeConfig.ttsVoices = stored.ttsVoices;
   if (stored.endpoints) runtimeConfig.endpoints = stored.endpoints;
 }
 
@@ -165,4 +193,26 @@ export function deepgramApiKey(): string {
 export function ttsEnabled(): boolean {
   if (runtimeConfig.ttsEnabled !== null) return runtimeConfig.ttsEnabled;
   return (process.env.TTS_ENABLED || 'true').toLowerCase() !== 'false';
+}
+
+export function ttsProvider(): string {
+  if (runtimeConfig.ttsProvider) return runtimeConfig.ttsProvider;
+  const env = (process.env.TTS_PROVIDER || '').trim().toLowerCase();
+  if (env) return env;
+  if (process.env.AZURE_TTS_KEY || process.env.AZURE_SPEECH_KEY) return 'azure';
+  if (process.env.AWS_ACCESS_KEY_ID) return 'polly';
+  return 'google';
+}
+
+export function azureTtsConfig(): { key: string; region: string } | null {
+  const key = runtimeConfig.ttsAzureKey || process.env.AZURE_TTS_KEY || process.env.AZURE_SPEECH_KEY || '';
+  const region = runtimeConfig.ttsAzureRegion || process.env.AZURE_TTS_REGION || process.env.AZURE_SPEECH_REGION || '';
+  return key && region ? { key, region } : null;
+}
+
+export function pollyTtsConfig(): { accessKey: string; secretKey: string; region: string } | null {
+  const accessKey = runtimeConfig.ttsPollyAccessKey || process.env.AWS_ACCESS_KEY_ID || '';
+  const secretKey = runtimeConfig.ttsPollySecretKey || process.env.AWS_SECRET_ACCESS_KEY || '';
+  const region = runtimeConfig.ttsPollyRegion || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '';
+  return accessKey && secretKey && region ? { accessKey, secretKey, region } : null;
 }

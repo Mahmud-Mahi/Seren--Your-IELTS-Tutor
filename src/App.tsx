@@ -115,6 +115,39 @@ const SerenApp: React.FC<SerenAppProps> = ({ session, onSignOut }) => {
   };
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
 
+  // On mount: hydrate TTS voice. Prefer the online-stored (Firestore, mirrored
+// into localStorage as seren_tts_voice*) value first, fall back to the local
+// settings.json-backed server value, and ultimately the default. This keeps
+// the local JSON and cloud storage from contradicting one another: if the
+// network is down we use whatever is already local; otherwise the server/firesynced
+// value wins and we persist it back to localStorage for future offline use.
+  useEffect(() => {
+    // 1) Hydrate immediately from locally-cached (Firestore-synced) preference.
+    try {
+      const localProvider = JSON.parse(localStorage.getItem('seren_tts_provider') || 'null');
+      const localVoice = (typeof localProvider === 'string')
+        ? (localStorage.getItem(`seren_tts_voice_${localProvider}`) || localStorage.getItem('seren_tts_voices'))
+        : null;
+      if (localVoice) serenVoice.setVoice(localVoice);
+    } catch {}
+    // 2) Refine from server (settings.json / durable backup) when reachable.
+    void (async () => {
+      try {
+        const res = await fetch('/api/providers/status');
+        const data = await res.json();
+        if (data.success && data.tts) {
+          const v = data.tts.voice;
+          if (v) {
+            serenVoice.setVoice(v);
+            try { localStorage.setItem('seren_tts_voices', JSON.stringify(data.tts.voices || {})); } catch {}
+          }
+        }
+      } catch {
+        // Network issue — keep the localStorage (Firestore-synced) value above.
+      }
+    })();
+  }, []);
+
   // Sync state to localStorage
   useEffect(() => {
     if (userProfile) {
