@@ -24,9 +24,19 @@ import {
   Download,
   Upload,
   FolderOpen,
+  Database,
+  FileJson,
+  Plug,
+  Flame,
+  ListOrdered,
+  ArrowUp,
+  ArrowDown,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { serenVoice, TTSEngineMode } from '../utils/speech';
 import { getAutoMicEnabled, setAutoMicEnabled } from '../utils/preferences';
+import { loadMessagesByMode } from '../utils/chatHistory';
 import {
   DEFAULT_UI_ZOOM,
   DEFAULT_TEXT_SCALE,
@@ -84,6 +94,7 @@ const providerIcons: Record<string, React.ReactNode> = {
   local: <Cpu className="w-4 h-4" />,
   ollama: <Server className="w-4 h-4" />,
   groq: <Cloud className="w-4 h-4" />,
+  demonroute: <Flame className="w-4 h-4" />,
 };
 
 interface SttEngineInfo {
@@ -97,10 +108,57 @@ interface SttEngineInfo {
   models: string[];
 }
 
+interface MemoryPluginField {
+  key: string;
+  label: string;
+  type?: 'text' | 'password' | 'url' | 'number';
+  placeholder?: string;
+  required?: boolean;
+  default?: string;
+  help?: string;
+}
+
+interface MemoryPluginManifest {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  baseUrl?: string;
+  endpoints?: { search?: string; store?: string; test?: string };
+  auth?: { type?: 'bearer' | 'header' | 'none'; header?: string; prefix?: string };
+  request?: {
+    chatIdField?: string;
+    messageField?: string;
+    queryField?: string;
+    extra?: Record<string, string | number | boolean>;
+  };
+  response?: { memoriesPath?: string; summaryField?: string; scoreField?: string };
+  fields?: MemoryPluginField[];
+}
+
+interface MemoryPluginStatus {
+  enabled: boolean;
+  ready: boolean;
+  baseUrl: string;
+  chatId: string;
+  maxMemories: number;
+  hasApiKey: boolean;
+  needsKey: boolean;
+  fileName: string | null;
+  plugin: MemoryPluginManifest | null;
+  options: Record<string, string>;
+  initialSyncDone: boolean;
+  builtins: MemoryPluginManifest[];
+}
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) => {
   const [appVersion, setAppVersion] = useState(packageMetadata.version);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [pinnedProvider, setPinnedProvider] = useState<string>('auto');
+  const [providerPriority, setProviderPriority] = useState<string[]>([]);
+  const [autoCascadeExpanded, setAutoCascadeExpanded] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
+  const [priorityMsg, setPriorityMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [sttEngineSel, setSttEngineSel] = useState<string>('local');
   const [sttEngines, setSttEngines] = useState<SttEngineInfo[]>([]);
@@ -116,6 +174,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
   const [sttEpApiKey, setSttEpApiKey] = useState('');
   const [savingSttEndpointFor, setSavingSttEndpointFor] = useState<string | null>(null);
   const [sttEndpointMsg, setSttEndpointMsg] = useState<{ key: string; ok: boolean; text: string } | null>(null);
+
+  const [memoryStatus, setMemoryStatus] = useState<MemoryPluginStatus | null>(null);
+  const [memoryExpanded, setMemoryExpanded] = useState(false);
+  const [memoryEnabled, setMemoryEnabled] = useState(false);
+  const [memoryManifest, setMemoryManifest] = useState<MemoryPluginManifest | null>(null);
+  const [memoryBaseUrl, setMemoryBaseUrl] = useState('');
+  const [memoryApiKey, setMemoryApiKey] = useState('');
+  const [memoryChatId, setMemoryChatId] = useState('');
+  const [memoryFileName, setMemoryFileName] = useState('');
+  const [memoryMaxMemories, setMemoryMaxMemories] = useState('8');
+  const [memoryOptions, setMemoryOptions] = useState<Record<string, string>>({});
+  const [casualHistoryCount, setCasualHistoryCount] = useState(0);
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [memoryTesting, setMemoryTesting] = useState(false);
+  const [memoryMsg, setMemoryMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const memoryFileRef = useRef<HTMLInputElement>(null);
 
   const [modelLists, setModelLists] = useState<Record<string, string[]>>({});
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>(() => {
@@ -238,6 +312,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
       if (data.success) {
         setProviders(data.providers || []);
         setPinnedProvider(data.pinnedProvider || 'auto');
+        setProviderPriority(
+          Array.isArray(data.priority)
+            ? data.priority.filter((key: unknown): key is string => typeof key === 'string')
+            : []
+        );
         const sel: Record<string, string> = {};
         for (const p of data.providers || []) {
           sel[p.key] = p.configuredModel || 'auto';
@@ -272,10 +351,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     } catch (e) {}
   }, []);
 
+  const applyMemoryStatus = useCallback((memory: MemoryPluginStatus | null) => {
+    setMemoryStatus(memory);
+    if (!memory) return;
+    const fallback = memory.plugin || memory.builtins?.find((plugin) => plugin.id === 'chatsorter') || null;
+    setMemoryEnabled(memory.enabled);
+    setMemoryManifest(fallback);
+    setMemoryFileName(memory.fileName || (fallback ? `${fallback.id}.memory.json` : ''));
+    setMemoryBaseUrl(memory.baseUrl || fallback?.baseUrl || '');
+    setMemoryChatId(memory.chatId || '');
+    setMemoryMaxMemories(String(memory.maxMemories ?? 8));
+    setMemoryOptions(memory.options || {});
+    setMemoryApiKey('');
+  }, []);
+
+  const loadMemoryStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/memory/status');
+      const data = await res.json();
+      if (data.success && data.memory) applyMemoryStatus(data.memory);
+    } catch (e) {}
+  }, [applyMemoryStatus]);
+
   useEffect(() => {
     if (!open) return;
     void loadStatus();
     void loadModelLists();
+    void loadMemoryStatus();
+    setCasualHistoryCount(loadMessagesByMode()['Casual Chat'].length);
     void (async () => {
       // Fetch all voices from all providers
       try {
@@ -326,7 +429,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     })();
     setServerTtsOnline(null);
     void serenVoice.checkServerTts().then(setServerTtsOnline);
-  }, [open, loadStatus, loadModelLists]);
+  }, [open, loadStatus, loadModelLists, loadMemoryStatus]);
 
   // Apply the selected TTS provider's voice to the speech engine when provider changes
   useEffect(() => {
@@ -438,6 +541,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
         body: JSON.stringify({ pinnedProvider: value }),
       });
     } catch (e) {}
+  };
+
+  const saveProviderPriority = async (next: string[] | null) => {
+    const previous = providerPriority;
+    if (next) setProviderPriority(next);
+    setSavingPriority(true);
+    setPriorityMsg(null);
+    try {
+      const res = await fetch('/api/providers/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerPriority: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data.success) {
+        setProviderPriority(previous);
+        setPriorityMsg({ ok: false, text: data.error || 'Could not save priority order' });
+      } else {
+        void loadStatus();
+        void loadModelLists();
+      }
+    } catch (e: any) {
+      setProviderPriority(previous);
+      setPriorityMsg({ ok: false, text: e?.message || 'Network error' });
+    } finally {
+      setSavingPriority(false);
+    }
+  };
+
+  const toggleProviderPriority = (key: string) => {
+    if (providerPriority.includes(key)) {
+      if (providerPriority.length <= 1) return;
+      void saveProviderPriority(providerPriority.filter((k) => k !== key));
+    } else {
+      void saveProviderPriority([...providerPriority, key]);
+    }
+  };
+
+  const moveProviderPriority = (key: string, direction: -1 | 1) => {
+    const index = providerPriority.indexOf(key);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= providerPriority.length) return;
+    const next = [...providerPriority];
+    [next[index], next[target]] = [next[target], next[index]];
+    void saveProviderPriority(next);
   };
 
   const handleSelectSttEngine = async (value: string) => {
@@ -665,6 +813,153 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
     }
   };
 
+  const memoryPluginFields = (memoryManifest?.fields || []).filter(
+    (field) => field && field.key && !['apiKey', 'chatId', 'baseUrl'].includes(field.key)
+  );
+  const memoryNeedsKey = memoryManifest ? (memoryManifest.auth?.type || 'bearer') !== 'none' : true;
+  const memoryReady = Boolean(
+    memoryEnabled &&
+      memoryManifest &&
+      (memoryBaseUrl.trim() || memoryManifest.baseUrl) &&
+      (!memoryNeedsKey || memoryStatus?.hasApiKey || memoryApiKey.trim())
+  );
+
+  const memoryDefaultsFrom = (manifest: MemoryPluginManifest): Record<string, string> => {
+    const defaults: Record<string, string> = {};
+    for (const field of manifest.fields || []) {
+      if (field.default) defaults[field.key] = field.default;
+    }
+    return defaults;
+  };
+
+  const applyMemoryManifest = (manifest: MemoryPluginManifest, fileName: string) => {
+    setMemoryManifest(manifest);
+    setMemoryFileName(fileName);
+    setMemoryBaseUrl(manifest.baseUrl || '');
+    setMemoryOptions((prev) => ({ ...prev, ...memoryDefaultsFrom(manifest) }));
+    setMemoryMsg({ ok: true, text: `Loaded ${manifest.name}. Review the settings and press Save.` });
+  };
+
+  const handleMemoryPluginFile = async (file: File) => {
+    setMemoryMsg(null);
+    if (file.size > 1024 * 1024) {
+      setMemoryMsg({ ok: false, text: 'Plugin file is too large (max 1 MB).' });
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text());
+      const candidate = parsed && typeof parsed === 'object' && parsed.plugin ? parsed.plugin : parsed;
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || !candidate.name) {
+        throw new Error('Not a valid memory plugin file.');
+      }
+      if (candidate.baseUrl && !/^https?:\/\//i.test(String(candidate.baseUrl))) {
+        throw new Error('Plugin baseUrl must start with http:// or https://.');
+      }
+      applyMemoryManifest(candidate as MemoryPluginManifest, file.name);
+    } catch (e: any) {
+      setMemoryMsg({ ok: false, text: e?.message || 'Could not read plugin file.' });
+    }
+  };
+
+  const handleLoadBuiltinMemory = (pluginId: string) => {
+    const manifest = memoryStatus?.builtins?.find((builtin) => builtin.id === pluginId);
+    if (!manifest) return;
+    applyMemoryManifest(manifest, `${manifest.id}.memory.json`);
+  };
+
+  const memoryPayload = () => {
+    const payload: Record<string, any> = {
+      enabled: memoryEnabled,
+      manifest: memoryManifest,
+      fileName: memoryFileName || undefined,
+      baseUrl: memoryBaseUrl.trim(),
+      chatId: memoryChatId.trim(),
+      maxMemories: Number(memoryMaxMemories) || 8,
+      options: memoryOptions,
+    };
+    const key = memoryApiKey.trim();
+    if (key) payload.apiKey = key;
+    return payload;
+  };
+
+  const handleSaveMemory = async (overrides: Record<string, any> = {}) => {
+    setMemorySaving(true);
+    setMemoryMsg(null);
+    try {
+      const res = await fetch('/api/memory/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...memoryPayload(), ...overrides }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Could not save memory plugin settings.');
+      if (data.memory) applyMemoryStatus(data.memory);
+      setMemoryMsg({ ok: true, text: 'Memory plugin settings saved.' });
+    } catch (e: any) {
+      setMemoryMsg({ ok: false, text: e?.message || 'Network error' });
+      throw e;
+    } finally {
+      setMemorySaving(false);
+    }
+  };
+
+  const handleMemoryToggle = async (enabled: boolean) => {
+    if (enabled && !memoryManifest) {
+      setMemoryMsg({ ok: false, text: 'Select a memory plugin file first.' });
+      return;
+    }
+    setMemoryEnabled(enabled);
+    try {
+      await handleSaveMemory({ enabled });
+    } catch {
+      setMemoryEnabled(!enabled);
+    }
+  };
+
+  const handleTestMemory = async () => {
+    setMemoryMsg(null);
+    if (!memoryManifest) {
+      setMemoryMsg({ ok: false, text: 'Select a memory plugin file first.' });
+      return;
+    }
+    if (!(memoryBaseUrl.trim() || memoryManifest.baseUrl)) {
+      setMemoryMsg({ ok: false, text: 'Enter the memory plugin base URL first.' });
+      return;
+    }
+    if (memoryNeedsKey && !memoryStatus?.hasApiKey && !memoryApiKey.trim()) {
+      setMemoryMsg({ ok: false, text: 'Enter the plugin API key first.' });
+      return;
+    }
+    setMemoryTesting(true);
+    try {
+      const casualMessages = loadMessagesByMode()['Casual Chat'].map((message) => ({
+        sender: message.sender,
+        text: message.text,
+        timestamp: message.timestamp,
+      }));
+      const res = await fetch('/api/memory/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...memoryPayload(), initialMessages: casualMessages }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Memory plugin test failed.');
+      if (data.memory) applyMemoryStatus(data.memory);
+
+      let text = data.message || 'Memory plugin responded successfully.';
+      const sync = data.initialSync;
+      if (sync?.attempted > 0) {
+        text += sync.sent > 0 ? ` Synced ${sync.sent} casual chat message(s).` : '';
+        if (sync.error) text += ` History sync failed: ${sync.error}`;
+      }
+      setMemoryMsg({ ok: !sync?.error, text });
+    } catch (e: any) {
+      setMemoryMsg({ ok: false, text: e?.message || 'Network error' });
+    } finally {
+      setMemoryTesting(false);
+    }
+  };
+
 
   return (
     <AnimatePresence>
@@ -691,8 +986,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                   <RadioTower className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-[#f8f8f2]">AI Engine Settings</h2>
-                  <p className="text-[11px] text-[#6272a4]">Configure Seren's brain &amp; voice — all free, no paid APIs</p>
+                  <h2 className="text-base font-bold text-[#f8f8f2]">Settings</h2>
+                  <p className="text-[11px] text-[#6272a4]">Configure Seren's AI, voice, memory &amp; app preferences</p>
                   <p className="text-[10px] text-[#6272a4]/80">Version {appVersion}</p>
                 </div>
               </div>
@@ -724,27 +1019,127 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                 </div>
 
                 <div className="space-y-2.5">
-                  {/* Auto cascade option */}
-                  <button
-                    type="button"
-                    onClick={() => void handlePinProvider('auto')}
-                    className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all ${
+                  {/* Auto cascade option + manual priority */}
+                  <div
+                    className={`w-full rounded-2xl border transition-all ${
                       pinnedProvider === 'auto'
                         ? 'border-[#bd93f9]/60 bg-[#bd93f9]/10'
-                        : 'border-[#44475a] bg-[#21222c] hover:border-[#6272a4]'
+                        : 'border-[#44475a] bg-[#21222c]'
                     }`}
                   >
-                    <div className="p-2 rounded-xl bg-[#8be9fd]/15 border border-[#8be9fd]/40 text-[#8be9fd]">
-                      <RadioTower className="w-4 h-4" />
+                    <div className="flex items-stretch">
+                      <button
+                        type="button"
+                        onClick={() => void handlePinProvider('auto')}
+                        className="flex-1 flex items-center gap-3 p-3.5 text-left rounded-l-2xl hover:bg-[#282a36]/40 transition-colors"
+                      >
+                        <div className="p-2 rounded-xl bg-[#8be9fd]/15 border border-[#8be9fd]/40 text-[#8be9fd]">
+                          <RadioTower className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-[#f8f8f2] flex items-center gap-2">
+                            Auto (smart cascade)
+                            {pinnedProvider === 'auto' && <Check className="w-4 h-4 text-[#50fa7b]" />}
+                          </div>
+                          <div className="text-[11px] text-[#6272a4]">
+                            Tries each enabled provider in your saved priority order
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAutoCascadeExpanded((prev) => !prev)}
+                        className="px-3 flex items-center justify-center text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a]/40 rounded-r-2xl transition-colors"
+                        title={autoCascadeExpanded ? 'Hide cascade priority' : 'Show cascade priority'}
+                      >
+                        {autoCascadeExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-[#f8f8f2]">Auto (smart cascade)</div>
-                      <div className="text-[11px] text-[#6272a4]">
-                        Tries each provider in order and uses the first one that answers
+
+                    {autoCascadeExpanded && (
+                      <div className="px-3.5 pb-3.5 pt-3 border-t border-[#44475a]/60">
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <ListOrdered className="w-3.5 h-3.5 text-[#ffb86c]" />
+                          <div className="text-[11px] font-semibold text-[#f8f8f2]">Cascade priority</div>
+                          {savingPriority && <Loader2 className="w-3 h-3 text-[#bd93f9] animate-spin" />}
+                          <span className="ml-auto text-[10px] text-[#6272a4]">Top provider is tried first</span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {providers.map((p) => {
+                            const index = providerPriority.indexOf(p.key);
+                            const enabled = index !== -1;
+                            const canRemove = enabled && providerPriority.length > 1;
+                            return (
+                              <div
+                                key={p.key}
+                                className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border ${
+                                  enabled ? 'border-[#6272a4]/60 bg-[#282a36]' : 'border-[#44475a] bg-[#282a36]/40'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleProviderPriority(p.key)}
+                                  disabled={!canRemove && enabled}
+                                  className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                                    enabled
+                                      ? 'border-[#50fa7b]/60 bg-[#50fa7b]/15 text-[#50fa7b]'
+                                      : 'border-[#6272a4] text-transparent hover:border-[#bd93f9]'
+                                  } ${!canRemove && enabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}
+                                  title={enabled ? 'Exclude from auto cascade' : 'Include in auto cascade'}
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+                                <span className={`text-[11px] font-medium truncate ${enabled ? 'text-[#f8f8f2]' : 'text-[#6272a4]'}`}>
+                                  {enabled ? `${index + 1}. ` : ''}{p.label}
+                                </span>
+                                <div className="ml-auto flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveProviderPriority(p.key, -1)}
+                                    disabled={!enabled || index === 0}
+                                    className="p-1 rounded-md border border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    title="Move up"
+                                  >
+                                    <ArrowUp className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveProviderPriority(p.key, 1)}
+                                    disabled={!enabled || index === providerPriority.length - 1}
+                                    className="p-1 rounded-md border border-[#44475a] text-[#6272a4] hover:text-[#f8f8f2] hover:bg-[#44475a] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    title="Move down"
+                                  >
+                                    <ArrowDown className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void saveProviderPriority(null)}
+                            disabled={savingPriority}
+                            className="text-[10px] font-semibold text-[#6272a4] hover:text-[#f8f8f2] transition-colors disabled:opacity-40"
+                          >
+                            Reset to default order
+                          </button>
+                          {priorityMsg && (
+                            <span className={`text-[10px] ${priorityMsg.ok ? 'text-[#50fa7b]' : 'text-[#ff5555]'}`}>
+                              {priorityMsg.text}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {pinnedProvider === 'auto' && <Check className="w-4 h-4 text-[#50fa7b]" />}
-                  </button>
+                    )}
+                  </div>
 
                   {providers.map((p) => {
                     const isPinned = pinnedProvider === p.key;
@@ -779,22 +1174,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                           </div>
                           <div className="text-[11px] text-[#6272a4] truncate">{statusText}</div>
                           <div className="text-[10px] text-[#6272a4]/70 truncate font-mono">{p.baseUrl}</div>
-                          {!p.needsKey && (
-                            <select
-                              value={selectedModels[p.key] || 'auto'}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => void handleSelectModel(p.key, e.target.value)}
-                              className="mt-2 w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] outline-none focus:border-[#bd93f9]/60 font-mono cursor-pointer"
-                              title="Choose the exact model this provider should use"
-                            >
-                              <option value="auto">Auto — best available model</option>
-                              {models.map((id) => (
-                                <option key={id} value={id}>
-                                  {id}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          <select
+                            value={selectedModels[p.key] || 'auto'}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => void handleSelectModel(p.key, e.target.value)}
+                            className="mt-2 w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] outline-none focus:border-[#bd93f9]/60 font-mono cursor-pointer"
+                            title="Choose the exact model this provider should use"
+                          >
+                            <option value="auto">
+                              {p.needsKey && models.length === 0
+                                ? 'Auto — add an API key to load models'
+                                : 'Auto — best available model'}
+                            </option>
+                            {models.map((id) => (
+                              <option key={id} value={id}>
+                                {id}
+                              </option>
+                            ))}
+                          </select>
 
                           {/* Endpoint editor toggle */}
                           {editingEndpointFor === p.key ? (
@@ -817,14 +1214,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                               </label>
                               {p.key === 'groq' && (
                                 <p className="text-[10px] text-[#6272a4] leading-relaxed">
-                                  Get a free key at <span className="text-[#8be9fd] font-mono">console.groq.com</span> — no credit card needed. Paste it above.
+                                  Get a free key at{' '}
+                                  <a
+                                    href="https://console.groq.com"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[#8be9fd] font-mono underline decoration-dotted hover:text-[#bd93f9]"
+                                  >
+                                    console.groq.com
+                                  </a>{' '}
+                                  — no credit card needed. Paste it above.
+                                </p>
+                              )}
+                              {p.key === 'demonroute' && (
+                                <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                                  DemonRoute is OpenAI-compatible — the default API URL is{' '}
+                                  <span className="text-[#8be9fd] font-mono">https://api.demonroute.com/v1</span>.
+                                  Get an API key at{' '}
+                                  <a
+                                    href="https://demonroute.com"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[#8be9fd] font-mono underline decoration-dotted hover:text-[#bd93f9]"
+                                  >
+                                    demonroute.com
+                                  </a>{' '}
+                                  and paste it above.
                                 </p>
                               )}
                               <input
                                 type="password"
                                 value={epApiKey}
                                 onChange={(e) => setEpApiKey(e.target.value)}
-                                placeholder={p.hasCustomKey ? '•••••••• (saved)' : 'none required for local servers'}
+                                placeholder={
+                                  p.hasCustomKey
+                                    ? '•••••••• (saved)'
+                                    : p.key === 'demonroute'
+                                    ? 'sk-dr-...'
+                                    : p.key === 'groq'
+                                    ? 'gsk_...'
+                                    : 'none required for local servers'
+                                }
                                 className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
                               />
                               <div className="flex items-center gap-2 pt-1">
@@ -1027,6 +1457,258 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ open, onClose }) =
                       </button>
                     </div>
                   </div>
+                </div>
+              </section>
+
+              {/* Memory plugin */}
+              <section>
+                <div className="rounded-2xl border border-[#44475a] bg-[#21222c] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setMemoryExpanded((prev) => !prev)}
+                    className="w-full flex items-center gap-3 p-4 text-left hover:bg-[#282a36]/60 transition-colors"
+                  >
+                    <div className={`p-2 rounded-xl border ${memoryEnabled ? 'bg-[#50fa7b]/15 border-[#50fa7b]/40 text-[#50fa7b]' : 'bg-[#44475a]/40 border-[#44475a] text-[#6272a4]'}`}>
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-[#8be9fd]">
+                        Memory Plugin (Casual Chat)
+                      </h3>
+                      <div className="text-[10px] text-[#6272a4] truncate">
+                        {memoryManifest
+                          ? `${memoryManifest.name}${memoryManifest.version ? ` v${memoryManifest.version}` : ''}`
+                          : 'ChatSorter'}
+                        {' · '}
+                        {memoryEnabled ? 'Enabled' : 'Disabled'}
+                        {memoryEnabled && !memoryReady ? ' · needs configuration' : ''}
+                      </div>
+                    </div>
+                    {memoryExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-[#6272a4] shrink-0" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-[#6272a4] shrink-0" />
+                    )}
+                  </button>
+
+                  {memoryExpanded && (
+                    <div className="px-4 pb-4 pt-1 space-y-3 border-t border-[#44475a]/60">
+                      <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                        Give Seren long-term memory in Casual Chat. Select a memory plugin file, add its API key and
+                        configuration, and Seren will recall relevant details before each reply. Interview practice is
+                        never affected.
+                      </p>
+
+                      <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[#44475a] bg-[#282a36]">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-2 rounded-xl border ${memoryEnabled ? 'bg-[#50fa7b]/15 border-[#50fa7b]/40 text-[#50fa7b]' : 'bg-[#44475a]/40 border-[#44475a] text-[#6272a4]'}`}>
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-[#f8f8f2]">
+                          {memoryEnabled ? 'Memory enabled' : 'Memory disabled'}
+                        </div>
+                        <div className="text-[10px] text-[#6272a4] truncate">
+                          {memoryManifest
+                            ? `${memoryManifest.name}${memoryManifest.version ? ` v${memoryManifest.version}` : ''}`
+                            : 'No plugin loaded'}
+                          {memoryEnabled && !memoryReady ? ' — needs configuration' : ''}
+                        </div>
+                        {memoryStatus?.chatId && (
+                          <div className="text-[10px] text-[#6272a4]/80 font-mono truncate">
+                            {memoryStatus.chatId}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleMemoryToggle(!memoryEnabled)}
+                      disabled={memorySaving}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-40 ${
+                        memoryEnabled
+                          ? 'bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36]'
+                          : 'border border-[#44475a] bg-[#282a36] text-[#6272a4] hover:text-[#f8f8f2]'
+                      }`}
+                    >
+                      {memorySaving ? <Loader2 className="w-3 h-3 animate-spin" /> : memoryEnabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+
+                  {memoryMsg && (
+                    <div className={`p-2.5 rounded-xl border text-[11px] ${memoryMsg.ok ? 'border-[#50fa7b]/40 bg-[#50fa7b]/10 text-[#50fa7b]' : 'border-[#ff5555]/40 bg-[#ff5555]/10 text-[#ff5555]'}`}>
+                      {memoryMsg.text}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => memoryFileRef.current?.click()}
+                      className="px-3 py-1.5 rounded-lg border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-[11px] font-semibold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5"
+                    >
+                      <FileJson className="w-3.5 h-3.5" />
+                      Select plugin file
+                    </button>
+                    {(memoryStatus?.builtins || []).map((builtin) => (
+                      <button
+                        key={builtin.id}
+                        type="button"
+                        onClick={() => handleLoadBuiltinMemory(builtin.id)}
+                        className="px-3 py-1.5 rounded-lg border border-[#bd93f9]/50 bg-[#bd93f9]/10 text-[#bd93f9] text-[11px] font-semibold hover:bg-[#bd93f9]/20 transition-colors flex items-center gap-1.5"
+                      >
+                        <Plug className="w-3.5 h-3.5" />
+                        Use {builtin.name}
+                      </button>
+                    ))}
+                    <input
+                      ref={memoryFileRef}
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleMemoryPluginFile(file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </div>
+
+                  {memoryManifest ? (
+                    <div className="p-3 rounded-xl border border-[#6272a4]/50 bg-[#21222c] space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] font-bold text-[#f8f8f2]">
+                          {memoryManifest.name}
+                          {memoryManifest.version ? <span className="ml-1.5 text-[10px] font-normal text-[#6272a4]">v{memoryManifest.version}</span> : null}
+                        </div>
+                        {memoryFileName && (
+                          <span className="text-[10px] text-[#6272a4] font-mono truncate max-w-[55%]">{memoryFileName}</span>
+                        )}
+                      </div>
+                      {memoryManifest.description && (
+                        <p className="text-[10px] text-[#6272a4] leading-relaxed">{memoryManifest.description}</p>
+                      )}
+
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">
+                        Base URL
+                      </label>
+                      <input
+                        type="text"
+                        value={memoryBaseUrl}
+                        onChange={(e) => setMemoryBaseUrl(e.target.value)}
+                        placeholder={memoryManifest.baseUrl || 'https://api.example.com'}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
+                      />
+
+                      {memoryNeedsKey && (
+                        <>
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">
+                            API key
+                          </label>
+                          <input
+                            type="password"
+                            value={memoryApiKey}
+                            onChange={(e) => setMemoryApiKey(e.target.value)}
+                            placeholder={memoryStatus?.hasApiKey ? '•••••••• (saved — leave empty to keep)' : 'Paste the plugin API key'}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
+                          />
+                        </>
+                      )}
+
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">
+                        Memories to fetch (max_memories)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={memoryMaxMemories}
+                        onChange={(e) => setMemoryMaxMemories(e.target.value)}
+                        placeholder="8"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
+                      />
+                      <p className="text-[9px] text-[#6272a4] leading-relaxed">
+                        Number of memories retrieved per reply (recommended: 1-20).
+                      </p>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">
+                        Seren memory ID (chat_id)
+                      </label>
+                      <input
+                        type="text"
+                        value={memoryChatId}
+                        onChange={(e) => setMemoryChatId(e.target.value)}
+                        placeholder="Seren will create a dedicated ID automatically"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
+                      />
+                      <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                        This dedicated ID keeps Seren's memories separate from every other profile using the same
+                        API key.
+                      </p>
+                      {memoryStatus && !memoryStatus.initialSyncDone && (
+                        <p className="text-[10px] text-[#ffb86c] leading-relaxed">
+                          Found {casualHistoryCount} Casual Chat messages. The first successful test will sync them to the plugin. This can take a minute for long chats.
+                        </p>
+                      )}
+                      {memoryStatus?.initialSyncDone && (
+                        <p className="text-[10px] text-[#50fa7b] leading-relaxed">
+                          Existing Casual Chat history has already been synced.
+                        </p>
+                      )}
+
+                      {memoryPluginFields.map((field) => (
+                        <div key={field.key}>
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[#8be9fd] block pt-1">
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </label>
+                          <input
+                            type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
+                            value={memoryOptions[field.key] || ''}
+                            onChange={(e) => setMemoryOptions((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                            placeholder={field.placeholder || ''}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#44475a] bg-[#282a36] text-[11px] text-[#f8f8f2] placeholder-[#6272a4]/60 outline-none focus:border-[#bd93f9]/60 font-mono"
+                          />
+                          {field.help && (
+                            <p className="text-[10px] text-[#6272a4] leading-relaxed mt-1">{field.help}</p>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={memorySaving}
+                          onClick={() => void handleSaveMemory().catch(() => {})}
+                          className="px-3 py-1.5 rounded-lg bg-[#50fa7b] hover:bg-[#50fa7b]/90 text-[#282a36] text-[11px] font-bold transition-colors flex items-center gap-1.5 disabled:opacity-40"
+                        >
+                          {memorySaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          disabled={memoryTesting}
+                          onClick={() => void handleTestMemory()}
+                          className="px-3 py-1.5 rounded-lg border border-[#8be9fd]/50 bg-[#8be9fd]/10 text-[#8be9fd] text-[11px] font-semibold hover:bg-[#8be9fd]/20 transition-colors flex items-center gap-1.5 disabled:opacity-40"
+                        >
+                          {memoryTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          Test connection
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-[#6272a4] leading-relaxed">
+                      No plugin loaded yet. Select a <span className="font-mono text-[#8be9fd]">.json</span> memory
+                      plugin file, or load the bundled ChatSorter plugin above.
+                    </p>
+                  )}
+                    </div>
+                  )}
                 </div>
               </section>
 

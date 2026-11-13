@@ -1083,6 +1083,7 @@ export const SerenLiveChat: React.FC<SerenLiveChatProps> = ({
           conversationHistory: [],
           message: casualSessionOpener(),
           mode: 'Casual Chat',
+          skipMemory: true,
         }),
       });
       const data = await res.json();

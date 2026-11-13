@@ -228,7 +228,9 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
         await waitWhilePaused(gen, topicKey);
         continue;
       }
-      if (voice === 'browser-male') {
+      if (voice === 'male') {
+        await serenVoice.speak(text, { voice: 'male' });
+      } else if (voice === 'browser-male') {
         await speakMaleBrowser(text);
       } else {
         await serenVoice.speak(text, { voice });
@@ -268,10 +270,10 @@ export const CambridgeSolutions: React.FC<CambridgeSolutionsProps> = ({
 
         const q = group.questions[i];
 
-        // 1. The examiner asks the question (male neural voice).
+        // 1. The examiner asks the question (male voice from the selected TTS provider).
         setCurrentQIndex(i);
         setCurrentSpeaker('examiner');
-        await speakTurn('browser-male', q.question, gen, topicKey);
+        await speakTurn('male', q.question, gen, topicKey);
         if (genRef.current !== gen || activeTopicRef.current !== topicKey) return;
 
         // 2. A little pause, then Seren reads the sample answer from the bank.

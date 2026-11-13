@@ -71,6 +71,20 @@ export function defaultTtsVoice(): string {
   return defaultTtsVoiceForProvider(p);
 }
 
+export function defaultMaleTtsVoice(): string {
+  const p = currentProvider();
+  return defaultMaleTtsVoiceForProvider(p);
+}
+
+export function defaultMaleTtsVoiceForProvider(provider: string): string {
+  if (provider === 'azure') return 'en-US-GuyNeural';
+  if (provider === 'polly') return 'Matthew';
+  // Google's free translate endpoint has no male voice; fall back to a
+  // British female as the closest "examiner" flavour. (A true male google
+  // voice would need the paid Google Cloud TTS API.)
+  return 'google-tts-en-gb';
+}
+
 export function defaultTtsVoiceForProvider(provider: string): string {
   // Prefer per-provider saved voice, then global fallback, then env, then default.
   let preferred = '';
@@ -247,7 +261,10 @@ export async function synthesizeToResponse(
   pitch?: number
 ): Promise<void> {
   const provider = currentProvider();
-  const selected = sanitizeVoice(voice) || defaultTtsVoice();
+  const isMale = typeof voice === 'string' && voice.trim().toLowerCase() === 'male';
+  const selected = isMale
+    ? defaultMaleTtsVoice()
+    : sanitizeVoice(voice) || defaultTtsVoice();
 
   if (provider === 'azure') {
     await synthesizeAzure(res, text, selected);

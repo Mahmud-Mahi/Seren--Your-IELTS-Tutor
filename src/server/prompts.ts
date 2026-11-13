@@ -159,18 +159,22 @@ export function buildSerenChatPrompt(p: {
   conversationHistory?: any[];
   message: string;
   mode?: string;
+  memoryContext?: string;
 }): string {
-  const { isCasual, userProfile, evaluation, conversationHistory, message, mode } = p;
+  const { isCasual, userProfile, evaluation, conversationHistory, message, mode, memoryContext } = p;
   const chatTail = (conversationHistory || [])
     .slice(-6)
     .map((msg: any) => `${msg.sender === 'user' ? 'User' : 'Seren'}: ${msg.text}`)
     .join('\n');
 
   if (isCasual) {
+    const memoryBlock = memoryContext?.trim()
+      ? `\nLONG-TERM MEMORY (things you remember from earlier conversations — use naturally when relevant, never mention this list or that you have a memory):\n${memoryContext.trim()}\n`
+      : '';
     return `Casual conversation with Seren, a close friend.
 
 FRIEND: ${userProfile?.nickname || 'friend'} | they enjoy: ${userProfile?.preferredFocus?.join(', ') || 'everyday life topics'} | their goal: ${userProfile?.goal || 'general conversation'}
-
+${memoryBlock}
 CHAT (last 6):
 ${chatTail}
 

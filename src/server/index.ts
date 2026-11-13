@@ -3,7 +3,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import type { Socket } from 'net';
 import { registerRoutes } from './routes';
-import { getProviders, EXCLUDED_FROM_AUTO_CASCADE } from './llm';
+import { getProviders, getCascadePriority } from './llm';
 import { ttsEnabled } from './config';
 import { defaultTtsVoice, closeAllTtsConnections } from './tts';
 import { whisperSTT } from './whisper';
@@ -65,6 +65,9 @@ async function startServer() {
   // All API routes
   registerRoutes(app);
 
+  // Browsers probe /favicon.ico even when index.html points at /favicon.png.
+  app.get('/favicon.ico', (_req, res) => res.redirect(301, '/favicon.png'));
+
   // Vite integration
   let viteInstance: import('vite').ViteDevServer | null = null;
   if (process.env.NODE_ENV !== 'production') {
@@ -92,14 +95,11 @@ async function startServer() {
     const providers = getProviders()
       .map((p) => `${p.key}(${p.baseUrl})`)
       .join(' -> ');
-    const effectiveAuto = getProviders()
-      .filter((p) => !EXCLUDED_FROM_AUTO_CASCADE.has(p.key))
-      .map((p) => p.key)
-      .join(' -> ');
+    const effectiveAuto = getCascadePriority().join(' -> ');
     console.log(`Seren — Your IELTS Tutor server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     if (HOST === '0.0.0.0') console.log(`(also reachable on your LAN at http://<your-ip>:${PORT})`);
     console.log(`LLM provider cascade: ${providers}`);
-    console.log(`Auto cascade (no pin): ${effectiveAuto} — ollama only when explicitly selected`);
+    console.log(`Auto cascade (no pin): ${effectiveAuto}`);
     console.log(`Neural TTS: ${ttsEnabled() ? `enabled, voice ${defaultTtsVoice()}` : 'disabled'}`);
     console.log(`Local Whisper STT: ${whisperSTT ? 'loaded' : 'not available'}`);
   });

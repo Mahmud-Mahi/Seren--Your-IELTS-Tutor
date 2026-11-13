@@ -18,6 +18,7 @@ import {
 import { runLessonRoadmapPass } from '../lessonRoadmap';
 import { backfillLessonFocus, buildDegradation } from '../evaluation';
 import { generateFallbackChatResponse, buildDeterministicLessonSummary } from '../chat';
+import { buildMemoryPromptBlock, retrieveMemories, storeMemory } from '../memory';
 
 const str = (v: any): string => (typeof v === 'string' ? v : v == null ? '' : String(v)).trim();
 
@@ -25,7 +26,7 @@ export function registerLessonRoutes(app: express.Express): void {
   // Interactive Seren Chat / IELTS Speaking Session Endpoint
   app.post('/api/seren-chat', async (req, res) => {
     try {
-      const { userProfile, evaluation, conversationHistory, message, mode, lessonContext, followUpIndex } = req.body;
+      const { userProfile, evaluation, conversationHistory, message, mode, lessonContext, followUpIndex, skipMemory } = req.body;
       const pinnedProvider = (req.get('x-seren-provider') || '').toLowerCase() || null;
 
       const isCasualMode = mode === 'Casual Chat';
@@ -102,6 +103,19 @@ export function registerLessonRoutes(app: express.Express): void {
         return res.json({ success: true, reply: parsed, provider, model });
       }
 
+      let memoryContext = '';
+      if (isCasualMode && skipMemory !== true) {
+        try {
+          const memories = await retrieveMemories(message, userProfile);
+          memoryContext = buildMemoryPromptBlock(memories);
+        } catch (memoryErr: any) {
+          console.warn('Memory retrieval skipped:', memoryErr?.message || memoryErr);
+        }
+        void storeMemory(message, userProfile, 'user').catch((memoryErr: any) => {
+          console.warn('Memory store skipped:', memoryErr?.message || memoryErr);
+        });
+      }
+
       const prompt = buildSerenChatPrompt({
         isCasual: isCasualMode,
         userProfile,
@@ -109,6 +123,7 @@ export function registerLessonRoutes(app: express.Express): void {
         conversationHistory,
         message,
         mode,
+        memoryContext,
       });
       const schemaHint = isCasualMode ? SEREN_CASUAL_SCHEMA : SEREN_CHAT_SCHEMA;
 
@@ -125,6 +140,13 @@ export function registerLessonRoutes(app: express.Express): void {
       if (!parsed || !parsed.replyText) {
         throw new Error('LLM returned malformed chat JSON');
       }
+
+      if (isCasualMode && skipMemory !== true) {
+        void storeMemory(parsed.replyText, userProfile, 'assistant').catch((memoryErr: any) => {
+          console.warn('Memory store skipped (assistant):', memoryErr?.message || memoryErr);
+        });
+      }
+
       return res.json({ success: true, reply: parsed, provider, model });
     } catch (err: any) {
       console.warn('Notice in Seren chat endpoint fallback:', err?.message || err);

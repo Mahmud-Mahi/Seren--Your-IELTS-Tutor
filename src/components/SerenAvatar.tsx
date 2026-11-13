@@ -33,6 +33,10 @@ export interface SerenAvatarProps {
    * isn't saying anything.
    */
   idleMood?: SerenMood;
+  /**
+   * If true, the speech bubble will have a fixed maximum height and be scrollable.
+   */
+  scrollableBubble?: boolean;
 }
 
 export const SerenAvatar: React.FC<SerenAvatarProps> = ({
@@ -53,6 +57,7 @@ export const SerenAvatar: React.FC<SerenAvatarProps> = ({
   autoSpeak = true,
   speaking = false,
   idleMood = 'encouraging',
+  scrollableBubble = false,
 }) => {
   const [isSerenSpeaking, setIsSerenSpeaking] = useState(false);
   const [displayedText, setDisplayedText] = useState('');
@@ -312,14 +317,17 @@ export const SerenAvatar: React.FC<SerenAvatarProps> = ({
       </div>
 
       {/* Subtitle Dialogue Balloon Shifted Cleanly Outside & Below the Image */}
-      {displayedText && !hideSubtitle && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-2.5 w-full relative rounded-xl p-3 sm:p-3.5 bg-[#21222c]/95 border border-[#44475a] shadow-xl backdrop-blur-xl text-[#f8f8f2] text-xs leading-relaxed"
-        >
-          {/* Subtle Speech Bubble Indicator Triangle */}
-          <div className="absolute -top-2 left-8 w-4 h-4 bg-[#21222c] border-l border-t border-[#44475a] transform rotate-45" />
+       {displayedText && !hideSubtitle && (
+         <motion.div
+           initial={{ opacity: 0, y: 8 }}
+           animate={{ opacity: 1, y: 0 }}
+           className={`mt-2.5 w-full relative rounded-xl p-3 sm:p-3.5 bg-[#21222c]/95 border border-[#44475a] shadow-xl backdrop-blur-xl text-[#f8f8f2] text-xs leading-relaxed ${
+             scrollableBubble ? 'max-h-[200px] overflow-y-auto custom-scrollbar' : ''
+           }`}
+         >
+           {/* Subtle Speech Bubble Indicator Triangle */}
+           <div className="absolute -top-2 left-8 w-4 h-4 bg-[#21222c] border-l border-t border-[#44475a] transform rotate-45" />
+
 
           <div className="relative z-10 flex items-start justify-between gap-3">
             <div className="space-y-1">
@@ -327,7 +335,7 @@ export const SerenAvatar: React.FC<SerenAvatarProps> = ({
                 <Sparkles className="w-3 h-3 text-[#bd93f9]" />
                 <span>Seren</span>
               </div>
-              <p className="font-normal text-[#f8f8f2] text-xs sm:text-sm leading-relaxed">
+               <p className="font-normal text-[#f8f8f2] text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">
                 {displayedText}
               </p>
             </div>

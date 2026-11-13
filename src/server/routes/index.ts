@@ -6,6 +6,7 @@ import { registerSttRoutes } from './stt';
 import { registerEvaluationRoutes } from './evaluation';
 import { registerLessonRoutes } from './lesson';
 import { registerAccountRoutes } from './accounts';
+import { registerMemoryRoutes } from './memory';
 
 /**
  * Registers every API route on the Express app. Individual route modules live
@@ -25,4 +26,5 @@ export function registerRoutes(app: express.Express): void {
   registerEvaluationRoutes(app);
   registerLessonRoutes(app);
   registerAccountRoutes(app);
+  registerMemoryRoutes(app);
 }

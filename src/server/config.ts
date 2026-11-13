@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import type { MemoryPluginConfig } from './memory';
 
 // Load .env FIRST (before any module reads process.env at import time).
 dotenv.config();
@@ -25,6 +26,7 @@ export interface StoredSettings {
   sttEngine?: string | null;
   sttModels?: Record<string, string>;
   pinnedProvider?: string | null;
+  providerPriority?: string[] | null;
   modelOverrides?: Record<string, string>;
   ttsVoice?: string;
   ttsVoices?: Record<string, string>;
@@ -36,6 +38,7 @@ export interface StoredSettings {
   ttsPollySecretKey?: string;
   ttsPollyRegion?: string;
   endpoints?: Record<string, { baseUrl?: string; apiKey?: string }>;
+  memory?: MemoryPluginConfig;
 }
 
 function readSettingsFile(file: string): StoredSettings | null {
@@ -52,9 +55,14 @@ export function loadStoredSettings(): StoredSettings {
 
 export function saveStoredSettings(settings: StoredSettings): void {
   try {
+    const next: StoredSettings = { ...settings };
+    if (next.memory === undefined) {
+      const previous = readSettingsFile(SETTINGS_FILE);
+      if (previous?.memory !== undefined) next.memory = previous.memory;
+    }
     // The data root may not exist yet on a fresh desktop install.
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
   } catch (e: any) {
     console.warn('[settings] Could not persist settings:', e?.message || e);
   }
@@ -78,6 +86,7 @@ export const DEEPGRAM_STT_MODELS = ['nova-3', 'nova-2', 'whisper-large-v3'] as c
 
 export const runtimeConfig: {
   pinnedProvider: string | null;
+  providerPriority: string[] | null;
   ttsEnabled: boolean | null;
   ttsVoice: string | null;
   ttsVoices: Record<string, string>;
@@ -93,6 +102,7 @@ export const runtimeConfig: {
   sttModels: Record<string, string>;
 } = {
   pinnedProvider: null,
+  providerPriority: null,
   ttsEnabled: null,
   ttsVoice: null,
   ttsVoices: {},
@@ -128,6 +138,11 @@ export const BOOT_STT_ENGINE = process.env.STT_ENGINE || '';
     runtimeConfig.sttEngine = BOOT_STT_ENGINE as SttEngine;
   if (stored.sttModels) runtimeConfig.sttModels = stored.sttModels;
   if (stored.pinnedProvider !== undefined) runtimeConfig.pinnedProvider = stored.pinnedProvider;
+  if (stored.providerPriority !== undefined) {
+    runtimeConfig.providerPriority = Array.isArray(stored.providerPriority)
+      ? stored.providerPriority.filter((key): key is string => typeof key === 'string')
+      : null;
+  }
   if (stored.modelOverrides) runtimeConfig.modelOverrides = stored.modelOverrides;
   if (stored.ttsVoice) runtimeConfig.ttsVoice = stored.ttsVoice;
   if (stored.ttsEnabled !== undefined) runtimeConfig.ttsEnabled = stored.ttsEnabled;

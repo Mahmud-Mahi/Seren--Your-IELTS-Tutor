@@ -1,15 +1,16 @@
 import fs from 'fs';
 import type express from 'express';
 import { SETTINGS_FILE, runtimeConfig, BOOT_GROQ_API_KEY, BOOT_ASSEMBLYAI_API_KEY, ttsEnabled, sttEngine } from '../config';
-import { getProviders, clearProviderCaches } from '../llm';
+import { getProviders, providerNeedsApiKey, clearProviderCaches } from '../llm';
 import { defaultTtsVoice } from '../tts';
 import { describeSttEngines } from '../stt-providers';
+import { resetMemoryConfig } from '../memory';
 
 export function registerSystemRoutes(app: express.Express): void {
   // Health check endpoint
   app.get('/api/health', async (req, res) => {
     const providers = getProviders();
-    const anyUsable = providers.some((p) => p.key !== 'groq' || p.apiKey);
+    const anyUsable = providers.some((p) => !providerNeedsApiKey(p));
     res.json({
       status: 'ok',
       hasApiKey: anyUsable,
@@ -29,6 +30,7 @@ export function registerSystemRoutes(app: express.Express): void {
         fs.unlinkSync(SETTINGS_FILE);
       } catch (e) {}
       runtimeConfig.pinnedProvider = null;
+      runtimeConfig.providerPriority = null;
       runtimeConfig.modelOverrides = {};
       runtimeConfig.endpoints = {};
       runtimeConfig.ttsVoice = null;
@@ -36,6 +38,7 @@ export function registerSystemRoutes(app: express.Express): void {
       runtimeConfig.ttsEnabled = null;
       runtimeConfig.sttEngine = null;
       runtimeConfig.sttModels = {};
+      resetMemoryConfig();
       process.env.GROQ_API_KEY = BOOT_GROQ_API_KEY;
       process.env.ASSEMBLYAI_API_KEY = BOOT_ASSEMBLYAI_API_KEY;
       clearProviderCaches();

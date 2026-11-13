@@ -1,0 +1,31 @@
+{
+  "id": "chatsorter",
+  "name": "ChatSorter Memory",
+  "version": "1.0.0",
+  "description": "Long-term memory for casual chat using the ChatSorter API.",
+  "baseUrl": "https://api.chatsorter.com",
+  "endpoints": {
+    "search": "/search",
+    "store": "/process",
+    "test": "/search"
+  },
+  "auth": {
+    "type": "bearer",
+    "header": "Authorization",
+    "prefix": "Bearer "
+  },
+  "request": {
+    "chatIdField": "chat_id",
+    "messageField": "message",
+    "queryField": "query",
+    "roleField": "role",
+    "maxMemoriesField": "max_memories",
+    "extra": {}
+  },
+  "response": {
+    "memoriesPath": "memories",
+    "summaryField": "summary",
+    "scoreField": "score"
+  },
+  "fields": []
+}

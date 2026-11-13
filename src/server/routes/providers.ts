@@ -13,7 +13,14 @@ import {
   ttsEnabled,
   type SttEngine,
 } from '../config';
-import { getProviders, isProviderReachable, fetchWithTimeout, clearProviderCaches } from '../llm';
+import {
+  getProviders,
+  getCascadePriority,
+  isProviderReachable,
+  providerNeedsApiKey,
+  fetchWithTimeout,
+  clearProviderCaches,
+} from '../llm';
 import { defaultTtsVoice, defaultTtsVoiceForProvider, sanitizeVoice, sanitizeVoiceForProvider } from '../tts';
 import { describeSttEngines } from '../stt-providers';
 
@@ -25,7 +32,7 @@ export function registerProviderRoutes(app: express.Express): void {
       const results = await Promise.all(
         providers.map(async (p) => {
           const { reachable, model, latencyMs } = await isProviderReachable(p);
-          const needsKey = p.key === 'groq' && !p.apiKey;
+          const needsKey = providerNeedsApiKey(p);
           const ep = runtimeConfig.endpoints[p.key] || {};
           return {
             key: p.key,
@@ -45,7 +52,8 @@ export function registerProviderRoutes(app: express.Express): void {
       res.json({
         success: true,
         pinnedProvider: runtimeConfig.pinnedProvider || process.env.PINNED_PROVIDER || null,
-        priority: (process.env.PROVIDER_PRIORITY || 'local,ollama,groq').split(',').map((s) => s.trim()),
+        priority: getCascadePriority(),
+        customPriority: Boolean(runtimeConfig.providerPriority?.length),
         providers: results,
         tts: {
           enabled: ttsEnabled(),
@@ -66,7 +74,7 @@ export function registerProviderRoutes(app: express.Express): void {
       const providers = getProviders();
       const results = await Promise.all(
         providers.map(async (p) => {
-          if (p.key === 'groq' && !p.apiKey) {
+          if (providerNeedsApiKey(p)) {
             return { key: p.key, label: p.label, reachable: false, models: [] as string[] };
           }
           try {
@@ -98,7 +106,7 @@ export function registerProviderRoutes(app: express.Express): void {
   });
   app.post('/api/providers/configure', async (req, res) => {
     try {
-      const { pinnedProvider, groqApiKey, assemblyAiApiKey: assemblyKey, deepgramApiKey: deepgramKey, sttEngine: sttEngineSel, sttModels, sttEndpoint, ttsVoice, ttsEnabled: enableTts, models, endpoint } = req.body || {};
+      const { pinnedProvider, providerPriority, groqApiKey, assemblyAiApiKey: assemblyKey, deepgramApiKey: deepgramKey, sttEngine: sttEngineSel, sttModels, sttEndpoint, ttsVoice, ttsEnabled: enableTts, models, endpoint } = req.body || {};
 
     // Custom OpenAI-compatible endpoint (base URL and/or API key) per provider
     if (endpoint !== undefined) {
@@ -106,7 +114,7 @@ export function registerProviderRoutes(app: express.Express): void {
         return res.status(400).json({ success: false, error: 'endpoint must be an object {provider, baseUrl?, apiKey?}' });
       }
       const prov = String((endpoint as any).provider || '');
-      if (!['local', 'ollama', 'groq'].includes(prov)) {
+      if (!['local', 'ollama', 'groq', 'demonroute'].includes(prov)) {
         return res.status(400).json({ success: false, error: `Unknown provider '${prov}'` });
       }
       if (!runtimeConfig.endpoints[prov]) runtimeConfig.endpoints[prov] = {};
@@ -172,7 +180,7 @@ export function registerProviderRoutes(app: express.Express): void {
         return res.status(400).json({ success: false, error: 'models must be an object of providerKey -> modelId' });
       }
       for (const [providerKey, modelId] of Object.entries(models)) {
-        if (!['local', 'ollama', 'groq'].includes(providerKey)) {
+        if (!['local', 'ollama', 'groq', 'demonroute'].includes(providerKey)) {
           return res.status(400).json({ success: false, error: `Unknown provider '${providerKey}'` });
         }
         if (modelId === 'auto' || modelId === '') {
@@ -186,10 +194,30 @@ export function registerProviderRoutes(app: express.Express): void {
       clearProviderCaches();
     }
 
+      if (providerPriority !== undefined) {
+        if (providerPriority === null) {
+          runtimeConfig.providerPriority = null;
+        } else if (!Array.isArray(providerPriority)) {
+          return res.status(400).json({ success: false, error: 'providerPriority must be an array of provider keys or null' });
+        } else {
+          const valid = ['local', 'ollama', 'groq', 'demonroute'];
+          const invalid = providerPriority.find((key) => typeof key !== 'string' || !valid.includes(key));
+          if (invalid !== undefined) {
+            return res.status(400).json({ success: false, error: `Unknown provider in providerPriority: ${String(invalid)}` });
+          }
+          const clean = [...new Set(providerPriority.map((key) => key.trim().toLowerCase()))];
+          if (clean.length === 0) {
+            return res.status(400).json({ success: false, error: 'providerPriority must include at least one provider' });
+          }
+          runtimeConfig.providerPriority = clean;
+        }
+        clearProviderCaches();
+      }
+
       if (pinnedProvider !== undefined) {
-        const valid = ['auto', 'local', 'ollama', 'groq', null];
+        const valid = ['auto', 'local', 'ollama', 'groq', 'demonroute', null];
         if (!valid.includes(pinnedProvider)) {
-          return res.status(400).json({ success: false, error: 'pinnedProvider must be auto, local, ollama, groq or null' });
+          return res.status(400).json({ success: false, error: 'pinnedProvider must be auto, local, ollama, groq, demonroute or null' });
         }
         runtimeConfig.pinnedProvider = pinnedProvider === 'auto' ? null : pinnedProvider;
       }
@@ -349,6 +377,7 @@ export function registerProviderRoutes(app: express.Express): void {
         sttEngine: runtimeConfig.sttEngine,
         sttModels: runtimeConfig.sttModels,
         pinnedProvider: runtimeConfig.pinnedProvider,
+        providerPriority: runtimeConfig.providerPriority,
         modelOverrides: runtimeConfig.modelOverrides,
         ttsVoice: runtimeConfig.ttsVoice || undefined,
         ttsVoices: { ...runtimeConfig.ttsVoices },
@@ -362,7 +391,7 @@ export function registerProviderRoutes(app: express.Express): void {
         endpoints: runtimeConfig.endpoints,
       });
 
-      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsVoices: { ...runtimeConfig.ttsVoices }, ttsEnabled: ttsEnabled(), sttEngine: sttEngine(), sttModels: { groq: sttModelFor('groq'), assemblyai: sttModelFor('assemblyai'), deepgram: sttModelFor('deepgram') } } });
+      res.json({ success: true, config: { pinnedProvider: runtimeConfig.pinnedProvider, providerPriority: runtimeConfig.providerPriority, models: { ...runtimeConfig.modelOverrides }, ttsVoice: defaultTtsVoice(), ttsVoices: { ...runtimeConfig.ttsVoices }, ttsEnabled: ttsEnabled(), sttEngine: sttEngine(), sttModels: { groq: sttModelFor('groq'), assemblyai: sttModelFor('assemblyai'), deepgram: sttModelFor('deepgram') } } });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || 'configuration failed' });
     }

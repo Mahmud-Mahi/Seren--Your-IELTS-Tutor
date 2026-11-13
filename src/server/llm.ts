@@ -5,7 +5,7 @@ import { runtimeConfig } from './config';
 // ---------------------------------------------------------------------------
 
 export interface LLMProvider {
-  key: 'local' | 'ollama' | 'groq';
+  key: 'local' | 'ollama' | 'groq' | 'demonroute';
   label: string;
   baseUrl: string;
   model: string; // 'auto' triggers auto-detection from /models
@@ -43,6 +43,15 @@ export function getProviders(): LLMProvider[] {
       timeoutMs: parseInt(process.env.GROQ_TIMEOUT_MS || '45000', 10),
       supportsResponseFormat: true,
     },
+    {
+      key: 'demonroute',
+      label: 'DemonRoute',
+      baseUrl: (process.env.DEMONROUTE_BASE_URL || 'https://api.demonroute.com/v1').replace(/\/+$/, ''),
+      model: process.env.DEMONROUTE_MODEL || 'auto',
+      apiKey: process.env.DEMONROUTE_API_KEY || '',
+      timeoutMs: parseInt(process.env.DEMONROUTE_TIMEOUT_MS || '180000', 10),
+      supportsResponseFormat: true,
+    },
   ];
 
   // Runtime endpoint overrides (custom base URL / API key per provider)
@@ -60,10 +69,11 @@ export function getProviders(): LLMProvider[] {
     if (override) def.model = override;
   }
 
-  const priority = (process.env.PROVIDER_PRIORITY || 'local,ollama,groq')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+  const configuredPriority = runtimeConfig.providerPriority?.length
+    ? runtimeConfig.providerPriority
+    : (process.env.PROVIDER_PRIORITY || 'local,ollama,groq,demonroute').split(',');
+
+  const priority = [...new Set(configuredPriority.map((s) => s.trim().toLowerCase()).filter(Boolean))];
 
   const ordered: LLMProvider[] = [];
   for (const key of priority) {
@@ -74,6 +84,24 @@ export function getProviders(): LLMProvider[] {
     if (!ordered.includes(def)) ordered.push(def);
   }
   return ordered;
+}
+
+/**
+ * The providers the automatic cascade may use, in order. A user-defined
+ * priority list is honored exactly (including Ollama when explicitly added);
+ * otherwise the default order excludes providers marked as opt-in only.
+ */
+export function getCascadePriority(): string[] {
+  const ordered = getProviders().map((p) => p.key);
+  const custom = runtimeConfig.providerPriority;
+  if (custom?.length) {
+    return [...new Set(custom)].filter((key) => ordered.includes(key as LLMProvider['key']));
+  }
+  return ordered.filter((key) => !EXCLUDED_FROM_AUTO_CASCADE.has(key));
+}
+
+export function providerNeedsApiKey(provider: LLMProvider): boolean {
+  return (provider.key === 'groq' || provider.key === 'demonroute') && !provider.apiKey;
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
@@ -253,15 +281,16 @@ export interface CallLLMOptions {
 export async function callLLM(opts: CallLLMOptions): Promise<{ text: string; provider: string; model: string }> {
   const pinned = (opts.pinnedProvider || runtimeConfig.pinnedProvider || process.env.PINNED_PROVIDER || '').toLowerCase() || null;
   const providers = getProviders();
+  const cascadeKeys = new Set(getCascadePriority());
   let lastError: any = null;
 
   for (const provider of providers) {
     if (pinned && provider.key !== pinned) continue;
-    // Ollama is excluded from the AUTO cascade entirely — it is only used
-    // when explicitly pinned via Settings or x-seren-provider header
-    if (!pinned && EXCLUDED_FROM_AUTO_CASCADE.has(provider.key)) continue;
-    if (provider.key === 'groq' && !provider.apiKey) {
-      lastError = new Error('Groq API key not configured');
+    // The auto cascade only uses providers the user has enabled/prioritized.
+    // Pinning a provider bypasses the priority list entirely.
+    if (!pinned && !cascadeKeys.has(provider.key)) continue;
+    if (providerNeedsApiKey(provider)) {
+      lastError = new Error(`${provider.label} API key not configured`);
       continue;
     }
 

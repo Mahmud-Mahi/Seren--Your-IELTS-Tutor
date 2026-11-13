@@ -253,7 +253,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenSettings}
             className="p-2 rounded-xl border border-[#44475a] bg-[#21222c] hover:bg-[#44475a] text-[#6272a4] hover:text-[#8be9fd] transition-colors"
-            title={withHint('AI Engine, Voice & Shortcut Settings', settingsHint)}
+            title={withHint('App Settings', settingsHint)}
           >
             <Settings className="w-4 h-4" />
           </button>

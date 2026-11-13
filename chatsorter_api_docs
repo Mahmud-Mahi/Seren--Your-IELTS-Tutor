@@ -1,0 +1,42 @@
+API Docs
+Base URL & Auth
+Base URL
+https://api.chatsorter.com
+Auth Header
+Authorization: Bearer YOUR_KEY
+Endpoints
+POST
+/process
+Store a message. Runs scoring, extraction, triggers background summarization.
+
+{ "chat_id": "user_123", "message": "I prefer dark roast coffee" }
+POST
+/search
+Retrieve relevant memories for a query. Call before each LLM response.
+
+{ "chat_id": "user_123", "query": "food preferences?" }
+POST
+/sdk/v1
+One-call store + retrieve. Default integration point for new projects.
+
+{ "chat_id": "user_123", "message": "What coffee do I like?", "retrieve_memories": true }
+Python Example
+import requests
+
+API = "https://api.chatsorter.com"
+KEY = "your_key_here"
+HDR = {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+
+# Store a message
+requests.post(f"{API}/process", headers=HDR, json={
+    "chat_id": "user_alice",
+    "message": "I'm allergic to peanuts and I live in Austin"
+})
+
+# Retrieve context before LLM call
+resp = requests.post(f"{API}/search", headers=HDR, json={
+    "chat_id": "user_alice",
+    "query": "food restrictions?"
+})
+memories = resp.json()["memories"]
+# [{"summary": "User is allergic to peanuts", "score": 0.94}]

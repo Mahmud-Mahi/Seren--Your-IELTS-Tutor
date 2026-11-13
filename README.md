@@ -114,13 +114,17 @@ Two practice modes:
 
 ### ⚙️ Settings
 
-| AI Providers | Speech-to-Text Engines |
+| AI Providers & Cascade Priority | Providers, Models & DemonRoute |
 | --- | --- |
-| ![AI engine settings](public/Preview/settings-1.png) | ![STT engines](public/Preview/settings-2.png) |
+| ![AI providers and cascade priority](public/Preview/settings-1.png) | ![Provider models and DemonRoute](public/Preview/settings-2.png) |
 
-| Voice, Display & Data | Keyboard Shortcuts |
+| ChatSorter Memory Plugin | Voice, Display & Data |
 | --- | --- |
-| ![Voice, display & data](public/Preview/settings-3.png) | ![Keyboard shortcuts](public/Preview/settings-4.png) |
+| ![ChatSorter memory plugin](public/Preview/settings-5.png) | ![Voice, display & data](public/Preview/settings-3.png) |
+
+| Keyboard Shortcuts | |
+| --- | --- |
+| ![Keyboard shortcuts](public/Preview/settings-4.png) | |
 
 ---
 
@@ -130,8 +134,8 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 | Platform | Installer | How to install |
 |----------|-----------|----------------|
-| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-1.7.9.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.7.9/Seren-Setup-1.7.9.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
-| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_1.7.9_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v1.7.9/seren_1.7.9_amd64.deb) | `sudo apt install ./seren_1.7.9_amd64.deb` |
+| 🪟 **Windows** 10/11 (x64) | [`Seren-Setup-2.0.0.exe`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v2.0.0/Seren-Setup-2.0.0.exe) | Run the installer — per-user install, no admin prompt. It is unsigned, so SmartScreen may warn on first launch. |
+| 🐧 **Linux** (Debian / Ubuntu / Kali) | [`seren_2.0.0_amd64.deb`](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases/download/v2.0.0/seren_2.0.0_amd64.deb) | `sudo apt install ./seren_2.0.0_amd64.deb` |
 | 📦 **All versions** | [Releases](https://github.com/Mahmud-Mahi/Seren--Your-IELTS-Tutor/releases) | Full release history, each with notes and checksums |
 
 > 🎙️ Every installer **bundles the offline Whisper speech model** (~280 MB), so the first launch needs no extra download.
@@ -140,41 +144,38 @@ Grab the latest installer from the **[Releases page](https://github.com/Mahmud-M
 
 ---
 
-## 🆕 What's New in 1.7.9
+## 🆕 What's New in 2.0.0
 
-> 🚀 Everything below is new since **v1.5.5** — the previous published release.
+> 🚀 Everything below is new since **v1.7.9** — the previous published release.
 
 ### ✨ Added
 
-- 🔐 **Google Sign-In & cloud sync** — sign in with your Google account (or email & password) and every lesson, report, transcript and draft follows you to any computer. The consent screen opens in your *real* browser and the exchange happens entirely on your own machine via a loopback listener with PKCE — no server of yours is involved. Firestore Security Rules keep every learner's data private. See [`docs/FIREBASE-SETUP.md`](docs/FIREBASE-SETUP.md).
-- 🧭 **Account gate on first run** — a dedicated sign-in screen (Google + email & password, with password reset) replaces the old local account system. Without a Firebase project the app still runs in **offline mode** and says so.
-- 🔄 **Cross-device sync engine** — every `seren_*` write is mirrored to the cloud in the background (debounced, last-write-wins) and hydrated *before* the app mounts, so a lesson started on your laptop can be finished on your phone. Chat threads are **unioned** rather than overwritten, so two devices no longer erase each other's conversations.
-- ☁️ **Visible sync status** — a cloud indicator in the header and a banner when an upload fails. A failed sync is never silent.
-- 🛠️ **"Rebuild my lessons"** — if the lesson pass of a report degrades (rate limit, provider hiccup), you can regenerate **only** the roadmap from your recorded answers — no need to retake the whole test.
-- 🧩 **Grounded lesson modules** — every module now quotes your *own* faulty sentence, explains the rule, gives the corrected version, and ships "fix this sentence" exercises built from what you actually said.
-- 💾 **Autosave & resume** — the Custom Lesson drill, Cambridge session, solutions progress and chat drafts are saved continuously. Close the app mid-drill and you continue exactly where you stopped, tick marks included.
-- 🔤 **Resume greetings** — coming back to a lesson now gets a proper "Welcome back" from Seren instead of a mute avatar with an empty bubble.
+- 🧠 **ChatSorter long-term memory** — Casual Chat can now remember you across conversations. Pick the bundled ChatSorter plugin (or load your own `.json` memory plugin), add its API key, base URL, chat ID and memory count, then let Seren recall relevant details before every reply. Interview practice is never affected. Your existing Casual Chat history is synced once on the first successful connection test, and the whole config lives in a collapsible card in Settings.
+- 🛣️ **DemonRoute provider** — a fourth OpenAI-compatible LLM provider with the default API URL `https://api.demonroute.com/v1`, automatic model discovery, a model dropdown, and a direct link to get a key at [demonroute.com](https://demonroute.com).
+- 🎛️ **Manual cascade priority** — Auto (smart cascade) is now one collapsible card. Expand it to include/exclude providers, move them up or down, and reset to the default order. The order is persisted in `seren-settings.json` and is used exactly as configured by the Auto cascade.
+- 🎙️ **Refreshed TTS voice catalog** — extra Google, Azure and Amazon Polly voices, with per-provider voice selection that persists locally and syncs through Firestore. Google remains free with no setup.
+- 🧑‍🏫 **Male examiner voice** — Cambridge Solutions now asks questions with a male examiner voice from the selected TTS provider instead of a fixed Edge voice.
+- ⚙️ **Settings refresh** — the modal is now simply **Settings**, with a descriptive subtitle, a compact collapsible cascade card, an always-visible model dropdown for every provider, and a collapsible ChatSorter memory card.
 
 ### 🐛 Fixed
 
-- 🔊 **TTS reliability** — Edge TTS connections are now pooled and reused per voice (was a fresh WebSocket, DNS lookup and TLS handshake on *every* utterance, ~1.5 s of dead air each time), and the IPv6 "Happy Eyeballs" race that caused random `ETIMEDOUT` failures is fixed by letting the resolver pick a single address. Measured 0/10 failures, down from 2/10.
-- 🔊 **TTS voice selection now persists and syncs** — per-provider (Google / Azure / Polly) voice choices in Settings are saved immediately (no manual Save button needed for Google) to both the local `seren-settings.json` and Firestore, with Google defaulting to `google-tts-en-ca`; on restart the online (Firestore) value takes precedence with a local-file fallback, so the two stay in sync instead of contradicting.
-- 🔁 **Provider cascade no longer poisons itself** — a transient 429/5xx/network blip is retried in place with exponential backoff instead of cooling a healthy provider down for 10 minutes, so one rate-limited call no longer breaks the whole cascade.
-- 📉 **A failed run no longer destroys your report** — a degraded (fallback) evaluation is still shown, but it no longer overwrites the real report you earned.
-- 🧱 **One bad module no longer throws away three good ones** — lesson-roadmap validation is now per-module: valid modules survive, broken ones are repaired, and only ungroundable ones are dropped (and reported).
-- 🎭 **No more fabricated lesson feedback** — if the LLM call fails mid-lesson, Seren re-asks the drill question instead of falling back to the generic chat script and rendering it as a real evaluation.
-- 🔤 **"hi" no longer matches "which"** — the greeting trigger uses a word-boundary match, so it stopped greeting you in the middle of a real answer.
-- 💬 **Chat history survives two devices** — a thread is merged, not replaced, using the newest *message* timestamp rather than the timestamp of the storage key.
-- 🧹 **Lower AI cost per test** — the pronunciation scan is now **one** call for the whole test instead of one per answer with up to 3 retries (up to 36 calls reduced to 1), and the whole evaluation costs roughly 8 calls instead of dozens.
+- 🔊 **Voice preferences survive restarts** — per-provider voice choices no longer disagree between localStorage, `seren-settings.json` and Firestore; the server value is authoritative with a local fallback.
+- 💬 **Memory-aware Casual Chat** — memory retrieval and storage are wired into the chat endpoint, while the opening greeting explicitly skips memory writes.
+- 📜 **Long lesson replies stay readable** — Seren's speech bubble in Lesson Studio can scroll instead of overflowing the layout.
+- 🔁 **Correct resume greeting** — returning to a saved lesson restores its previous Seren message and greets you once, instead of showing an empty or duplicated bubble.
+- 📐 **Solutions pane stays on screen** — dragging the Cambridge Solutions scroll area no longer lets it grow past the bottom of the viewport.
+- 🌐 **Provider health checks** — DemonRoute and Groq are both treated as key-required providers for status, model listing and the auto cascade.
+- 🧭 **Persistent memory settings** — saving other settings no longer wipes the ChatSorter configuration, and factory reset clears it together with the rest of the app.
+- 🖼️ **Updated settings previews** — the README now shows the new AI provider/cascade and ChatSorter memory screens.
 
 ### 📦 Downloads
-- 🪟 Windows: `Seren-Setup-1.7.9.exe`
-- 🐧 Debian/Ubuntu: `seren_1.7.9_amd64.deb`
+- 🪟 Windows: `Seren-Setup-2.0.0.exe`
+- 🐧 Debian/Ubuntu: `seren_2.0.0_amd64.deb`
 
 ### 🔐 Checksums (SHA-256)
 ```text
-ad0408014406f176b4e5a541bb6587b7ed1fd26bb6b34889fed562a737b6e490  Seren-Setup-1.7.9.exe
-6a969c70a16a362f3a86b1a3f3af70d8bfa40f3e5d7b070a84210c75269f84b0  seren_1.7.9_amd64.deb
+b01e3b469ea2e692c5f60635f90e8852081789d6b5eaf99137bfba564284c2d6  Seren-Setup-2.0.0.exe
+91e603656473a264ea6efd5465d4cf0600667b8383a378fa9e1d6878e5a32681  seren_2.0.0_amd64.deb
 ```
 
 ---
@@ -212,8 +213,13 @@ OLLAMA_MODEL=ornith:9b
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=openai/gpt-oss-120b
 
-# Provider priority order
-PROVIDER_PRIORITY=local,ollama,groq
+# Option 4: DemonRoute (OpenAI-compatible provider)
+DEMONROUTE_API_KEY=your_demonroute_api_key_here
+DEMONROUTE_BASE_URL=https://api.demonroute.com/v1
+DEMONROUTE_MODEL=auto
+
+# Provider priority order (also editable in Settings → Auto smart cascade)
+PROVIDER_PRIORITY=local,ollama,groq,demonroute
 ```
 
 > **No API key? No problem!** Configure everything at runtime through the in-app Settings panel.
@@ -440,11 +446,12 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 │                  Backend (Express)                       │
 │  ┌──────────────────────────────────────────────────┐    │
 │  │            LLM Provider Cascade                  │    │
-│  │    Local → Ollama → Groq (auto-fallback)         │    │
+│  │  Local → Ollama → Groq → DemonRoute              │    │
+│  │  Auto cascade fallback, user-defined order       │    │
 │  └──────────────────────────────────────────────────┘    │
 │  ┌─────────────────┐  ┌─────────────────────────────┐    │
-│  │   Whisper STT   │  │     Edge Neural TTS         │    │
-│  │  (sherpa-onnx)  │  │     (msedge-tts)            │    │
+│  │   Whisper STT   │  │  Google / Azure / Polly TTS │    │
+│  │  (sherpa-onnx)  │  │  + memory plugin (Casual)   │    │
 │  └─────────────────┘  └─────────────────────────────┘    │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -460,7 +467,10 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 | **Local** | Self-hosted LLM via OpenAI-compatible API | Set `LLM_BASE_URL` to your server |
 | **Ollama** | Run open-source models locally | Install [Ollama](https://ollama.com) |
 | **Groq** | Free cloud API (no credit card) | Get key at [console.groq.com](https://console.groq.com) |
+| **DemonRoute** | OpenAI-compatible provider with model discovery | Get a key at [demonroute.com](https://demonroute.com); default URL is `https://api.demonroute.com/v1` |
 | **[token-free-gateway](https://github.com/Mahmud-Mahi/token-free-gateway)** | Free OpenAI-compatible gateway using web AI sessions — no API tokens required | Run the gateway locally and set `LLM_BASE_URL` to it |
+
+The **Auto (smart cascade)** card in Settings lets you choose which providers participate and in what order. When a provider is pinned, the priority list is bypassed.
 
 ### Environment Variables
 
@@ -472,7 +482,11 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 | `OLLAMA_MODEL` | `ornith:9b` | Ollama model name |
 | `GROQ_API_KEY` | — | Groq API key |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model ID |
-| `PROVIDER_PRIORITY` | `local,ollama,groq` | Fallback order |
+| `DEMONROUTE_API_KEY` | — | DemonRoute API key |
+| `DEMONROUTE_BASE_URL` | `https://api.demonroute.com/v1` | DemonRoute API base URL |
+| `DEMONROUTE_MODEL` | `auto` | DemonRoute model ID |
+| `DEMONROUTE_TIMEOUT_MS` | `180000` | DemonRoute request timeout |
+| `PROVIDER_PRIORITY` | `local,ollama,groq,demonroute` | Fallback order (also editable in Settings) |
 | `TTS_ENABLED` | `true` | Enable text-to-speech |
 | `TTS_VOICE` | `en-US-JennyNeural` | Edge TTS voice ID |
 | `PORT` | `3000` | Server port |
@@ -504,11 +518,16 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 │   │   ├── evaluation.ts    # LLM response normalization
 │   │   ├── greetings.ts     # AI greeting generation
 │   │   └── ...
+│   ├── server/              # Express backend modules
+│   │   ├── llm.ts           # Provider cascade, DemonRoute, priority order
+│   │   ├── memory.ts        # ChatSorter / custom memory plugin engine
+│   │   └── routes/          # API routes (providers, memory, lessons, TTS, …)
 │   ├── data/                # IELTS question banks
 │   ├── types.ts             # TypeScript interfaces
 │   └── App.tsx              # Main application
 ├── server.ts                # Dev entry (thin boot file → src/server/index.ts)
-├── src/server/              # Express backend modules (routes, LLM, TTS, STT)
+├── plugins/                 # Bundled memory plugin manifests
+│   └── chatsorter.memory.json
 ├── stt-whisper.cjs          # sherpa-onnx Whisper STT binding
 ├── electron/                # Desktop shell (main.cjs, preload.cjs, splash)
 ├── public/                  # Static assets & PWA manifest
@@ -528,9 +547,10 @@ It reloads the window and verifies every key, so you see exactly what was carrie
 | **Frontend** | React 19, TypeScript, Tailwind CSS 4, Motion |
 | **Build** | Vite 6, esbuild |
 | **Backend** | Express.js, Node.js |
-| **LLM** | OpenAI-compatible API (Local/Ollama/Groq) |
+| **LLM** | OpenAI-compatible API (Local / Ollama / Groq / DemonRoute) with manual cascade order |
 | **STT** | sherpa-onnx Whisper (local) + live mic equalizer |
-| **TTS** | Microsoft Edge Neural TTS, SpeechSynthesis |
+| **TTS** | Google, Azure, Amazon Polly, Microsoft Edge Neural TTS, SpeechSynthesis |
+| **Memory** | ChatSorter plugin API or custom `.memory.json` plugin (Casual Chat only) |
 | **PWA** | Service Worker, Web App Manifest |
 
 ---

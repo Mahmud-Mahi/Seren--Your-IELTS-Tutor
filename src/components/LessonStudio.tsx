@@ -245,66 +245,40 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
   // that same switch save the fresh state on the next commit).
   const skipNextSaveRef = useRef(false);
   useEffect(() => {
-    const resumeKey = resumeGuardRef.current;
-    resumeGuardRef.current = null;
-    // Matches this render's module → it IS the resumed one: keep everything
-    // (user continues from the reply box exactly where they left off).
-    //
-    // The ROUND STATE is kept, but Seren must still say hello: skipping the
-    // greeting entirely left her mute in the "greeting" mood with no dialogue
-    // bubble at all, which looked like a broken app on every visit after the
-    // first one. She now gets a short "welcome back" line instead.
-    if (resumeKey && selectedModule?.id && resumeKey === `${selectedPlanId}::${selectedModule.id}`) {
-      // This is the module the app was last open on. Two cases:
-      //
-      //  • REAL work to pick up  → a genuine RESUME: keep the restored rounds
-      //    and greet the learner briefly ("Welcome back …").
-      //
-      //  • NOTHING done yet  → the autosave merely left an empty record
-      //    behind when the tab was opened, so this is really a FRESH lesson:
-      //    Seren uses the first-time welcome and READS the drill prompt, the
-      //    error analysis and the corrected sentence aloud — exactly like the
-      //    web app. The desktop app used to say only "Welcome back …" here
-      //    (because its localStorage survives restarts, so the empty record
-      //    was always found), which is why the two apps behaved differently.
+    if (!selectedModule?.id) return;
+
+    const isResume = restoredSession?.planId === selectedPlanId &&
+                     restoredSession?.module.id === selectedModule.id;
+
+    if (isResume) {
       const isGenuineResume = restoredSession?.hasContent === true;
+      if (!isGenuineResume) {
+        const greeting = lessonModuleGreeting({
+          moduleTitle: selectedModule.title,
+          nickname: userProfile.nickname,
+          practicePrompt: selectedModule?.practiceDrill?.prompt || '',
+          errorAnalysis: selectedModule?.errorAnalysis || '',
+          correction: selectedModule?.correction || '',
+        });
+        saySeren(greeting.display, greeting.spoken);
+        setSerenMood('speaking');
+        return;
+      }
+
       const greeting = lessonModuleGreeting({
         moduleTitle: selectedModule?.title || '',
         nickname: userProfile.nickname,
         practicePrompt: selectedModule?.practiceDrill?.prompt || '',
         errorAnalysis: selectedModule?.errorAnalysis || '',
         correction: selectedModule?.correction || '',
-        resuming: isGenuineResume,
+        resuming: true,
       });
-      saySeren(greeting.display, greeting.spoken);
+      const lastSerenMsg = conversationHistory.filter((m: any) => m.sender === 'seren').pop()?.text;
+      const display = lastSerenMsg ? `${greeting.display}\n\n${lastSerenMsg}` : greeting.display;
+      const spoken = lastSerenMsg ? `${greeting.spoken} ${lastSerenMsg}` : greeting.spoken;
+      saySeren(display, spoken);
       setSerenMood('speaking');
-      return;
-    }
-    // Genuine switch: the resets below queue a re-render, but the autosave
-    // effect declared after this one still sees the PREVIOUS module's state in
-    // this same commit. Flag it so that stale snapshot is never stored under
-    // the new module's key; the fresh (reset) state is saved right after.
-    skipNextSaveRef.current = true;
-    // RESTORE the clicked module's saved session instead of wiping to empty —
-    // wiping here used to overwrite finished lessons' saved transcripts
-    // (answers + follow-ups + summary) with empty state via the autosave.
-    const saved = loadLessonSession(selectedPlanId, selectedModule.id);
-    setUserSpokenText(saved?.userSpokenText || '');
-    setFeedbackHistory(saved?.feedbackHistory || []);
-    setFollowUpCount(saved?.followUpCount || 0);
-    setLessonSummary(saved?.lessonSummary || null);
-    setConversationHistory(saved?.conversationHistory || []);
-    // Completion ticks accumulate per plan:module across the whole session, so
-    // the in-memory map always wins over the (possibly older) snapshot copy.
-    if (saved?.localCompleted) {
-      setLocalCompleted((prev) => ({ ...saved.localCompleted, ...prev }));
-    }
-    setIsRecording(false);
-    void activeAudioRecorder.stop().catch(() => {});
-
-    if (selectedModule?.title) {
-      // Show ONLY the welcome in Seren's box, but READ the practice prompt —
-      // plus the error analysis & correction — aloud.
+    } else {
       const greeting = lessonModuleGreeting({
         moduleTitle: selectedModule.title,
         nickname: userProfile.nickname,
@@ -316,6 +290,26 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
       setSerenMood('speaking');
     }
   }, [selectedModule, userProfile.nickname]);
+
+  useEffect(() => {
+    // If this is the resumed module on mount, we don't need to restore (useState already did).
+    if (restoredSession?.planId === selectedPlanId && restoredSession?.module.id === selectedModule.id) {
+      return;
+    }
+
+    skipNextSaveRef.current = true;
+    const saved = loadLessonSession(selectedPlanId, selectedModule.id);
+    setUserSpokenText(saved?.userSpokenText || '');
+    setFeedbackHistory(saved?.feedbackHistory || []);
+    setFollowUpCount(saved?.followUpCount || 0);
+    setLessonSummary(saved?.lessonSummary || null);
+    setConversationHistory(saved?.conversationHistory || []);
+    if (saved?.localCompleted) {
+      setLocalCompleted((prev) => ({ ...saved.localCompleted, ...prev }));
+    }
+    setIsRecording(false);
+    void activeAudioRecorder.stop().catch(() => {});
+  }, [selectedModule, selectedPlanId]);
 
   // Autosave the in-progress lesson on EVERY interaction (rounds, drafts,
   // summary, ticks) under this module's slot — reopening resumes mid-arc.
@@ -873,14 +867,15 @@ export const LessonStudio: React.FC<LessonStudioProps> = ({
                     ratio is untouched and both blocks align in every sidebar
                     state. */}
                 <div className="w-full max-w-[320px] sm:max-w-[340px] mx-auto space-y-3">
-                  <SerenAvatar
-                    mood={serenMood}
-                    currentSpeech={serenSpeech}
-                    spokenAudioText={serenSpokenAudio}
-                    isUserSpeaking={isRecording}
-                    voiceEnabled={voiceEnabled}
-                    onToggleVoice={onToggleVoice}
-                  />
+                   <SerenAvatar
+                     mood={serenMood}
+                     currentSpeech={serenSpeech}
+                     spokenAudioText={serenSpokenAudio}
+                     isUserSpeaking={isRecording}
+                     voiceEnabled={voiceEnabled}
+                     onToggleVoice={onToggleVoice}
+                     scrollableBubble={true}
+                   />
 
                   {/* Key Learning Objectives — directly under Seren's voice box */}
                   <div className="p-4 rounded-2xl bg-[#21222c] border border-[#44475a] space-y-2 text-xs">
